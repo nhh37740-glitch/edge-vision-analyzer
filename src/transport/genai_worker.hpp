@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -14,6 +15,8 @@
 #include "transport/llm_selection.hpp"
 
 namespace edge {
+
+class Metrics;
 
 // Snapshot of the event metadata taken when EventTrackerNode triggers. The
 // frame is the clean, un-OSD-marked RGB buffer captured at trigger time.
@@ -51,9 +54,11 @@ struct GenAiStats {
 // released immediately. All HTTP waits happen on the worker thread only.
 class GenAiWorker {
  public:
-  GenAiWorker(LlmConfig llm, StorageConfig storage);
+  GenAiWorker(LlmConfig llm, StorageConfig storage,
+              std::shared_ptr<Metrics> metrics = nullptr);
   // Injected resources skip the startup /v1/models probe.
-  GenAiWorker(LlmConfig llm, StorageConfig storage, LlmResources llm_resources);
+  GenAiWorker(LlmConfig llm, StorageConfig storage, LlmResources llm_resources,
+              std::shared_ptr<Metrics> metrics = nullptr);
   ~GenAiWorker();
 
   GenAiWorker(const GenAiWorker&) = delete;
@@ -83,6 +88,7 @@ class GenAiWorker {
   LlmConfig llm_;
   StorageConfig storage_;
   LlmSelection selection_;
+  std::shared_ptr<Metrics> metrics_;
   bool resources_injected_ = false;
   BoundedQueue<GenAiTask> queue_{1};
   std::thread worker_;

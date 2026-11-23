@@ -20,6 +20,7 @@ class Metrics {
 
   std::uint64_t capture_frames() const { return capture_frames_.load(); }
   std::uint64_t detect_frames() const { return detect_frames_.load(); }
+  std::uint64_t motion_skips() const { return motion_skips_.load(); }
   std::uint64_t dropped_frames() const { return dropped_frames_.load(); }
   double uptime_sec() const;
 

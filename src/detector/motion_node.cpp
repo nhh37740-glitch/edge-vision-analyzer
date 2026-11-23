@@ -1,8 +1,13 @@
 #include "detector/motion_node.hpp"
 
+#include <utility>
+
+#include "common/metrics.hpp"
+
 namespace edge {
 
-MotionNode::MotionNode(double mad_threshold) : BaseNode("motion"), threshold_(mad_threshold) {}
+MotionNode::MotionNode(double mad_threshold, std::shared_ptr<Metrics> metrics)
+    : BaseNode("motion"), threshold_(mad_threshold), metrics_(std::move(metrics)) {}
 
 bool MotionNode::downsample(const FrameMeta& meta,
                             std::array<std::uint8_t, kSampleCount>& gray) const {
@@ -45,6 +50,11 @@ FrameMetaPtr MotionNode::process(FrameMetaPtr meta) {
 
   std::array<std::uint8_t, kSampleCount> gray{};
   if (!downsample(*meta, gray)) {
+    // The frame cannot reach detection, so it belongs on the skipped side of
+    // the ratio.
+    if (metrics_) {
+      metrics_->on_motion_skip();
+    }
     return meta;
   }
 
@@ -54,6 +64,9 @@ FrameMetaPtr MotionNode::process(FrameMetaPtr meta) {
     previous_ = gray;
     has_previous_ = true;
     meta->has_motion = true;
+    if (metrics_) {
+      metrics_->on_detect_frame();
+    }
     return meta;
   }
 
@@ -67,6 +80,15 @@ FrameMetaPtr MotionNode::process(FrameMetaPtr meta) {
 
   meta->motion_score = static_cast<float>(mad);
   meta->has_motion = mad >= threshold_.load();
+  if (metrics_) {
+    // Every non-null frame lands in exactly one bucket, keeping
+    // motion_skip_ratio = skips / (skips + detects) consistent.
+    if (meta->has_motion) {
+      metrics_->on_detect_frame();
+    } else {
+      metrics_->on_motion_skip();
+    }
+  }
   return meta;
 }
 

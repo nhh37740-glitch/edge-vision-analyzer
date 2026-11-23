@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "common/config.hpp"
+#include "common/metrics.hpp"
 #include "core/frame_meta.hpp"
 #include "detector/detection_utils.hpp"
 #include "detector/model_selection.hpp"
@@ -100,6 +101,20 @@ TEST(MotionNode, EmptyOrShortFrameIsSafe) {
   auto valid = make_frame(64, 48, 10);
   node.process(valid);
   EXPECT_TRUE(valid->has_motion);
+}
+
+TEST(MotionNode, ReportsDetectAndSkipCounts) {
+  auto metrics = std::make_shared<edge::Metrics>();
+  ExposedMotionNode node(8.0, metrics);
+
+  node.process(make_frame(64, 48, 40));   // first frame: baseline, detected
+  node.process(make_frame(64, 48, 40));   // unchanged: skipped
+  node.process(make_frame(64, 48, 40));   // unchanged: skipped
+  node.process(make_frame(64, 48, 255));  // changed: detected
+
+  EXPECT_EQ(metrics->detect_frames(), 2u);
+  EXPECT_EQ(metrics->motion_skips(), 2u);
+  EXPECT_DOUBLE_EQ(metrics->to_json().at("motion_skip_ratio").get<double>(), 0.5);
 }
 
 TEST(ModelSelection, ExplicitInt8UsesCandidate) {
@@ -244,7 +259,8 @@ TEST(NcnnDetectorNode, MissingModelFailsAndPassesFrameThrough) {
   edge::NcnnDetectorNode::Options options;
   options.model_param = "models/does-not-exist.param";
   options.model_bin = "models/does-not-exist.bin";
-  ExposedNcnnDetectorNode node(options);
+  auto metrics = std::make_shared<edge::Metrics>();
+  ExposedNcnnDetectorNode node(options, metrics);
 
   EXPECT_FALSE(node.load());
   EXPECT_FALSE(node.loaded());
@@ -261,6 +277,9 @@ TEST(NcnnDetectorNode, MissingModelFailsAndPassesFrameThrough) {
   auto still = make_frame(8, 8, 128);
   EXPECT_EQ(node.process(still), still);
   EXPECT_TRUE(still->targets.empty());
+
+  // An unloaded node never ran inference, so it must not report a duration.
+  EXPECT_EQ(metrics->to_json().at("avg_infer_ms").get<double>(), 0.0);
 }
 
 }  // namespace

@@ -4,10 +4,13 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
 #include "core/base_node.hpp"
 
 namespace edge {
+
+class Metrics;
 
 // Frame-difference funnel: downsamples RGB24 to a 64x48 grayscale sample and
 // compares it with the previous frame using mean absolute difference. Static
@@ -18,7 +21,8 @@ class MotionNode : public BaseNode {
   static constexpr int kWidth = 64;
   static constexpr int kHeight = 48;
 
-  explicit MotionNode(double mad_threshold = 8.0);
+  explicit MotionNode(double mad_threshold = 8.0,
+                      std::shared_ptr<Metrics> metrics = nullptr);
 
   // Runtime update for PATCH /api/v1/config; safe from another thread.
   void set_threshold(double mad_threshold) { threshold_.store(mad_threshold); }
@@ -35,6 +39,7 @@ class MotionNode : public BaseNode {
                   std::array<std::uint8_t, kSampleCount>& gray) const;
 
   std::atomic<double> threshold_;
+  std::shared_ptr<Metrics> metrics_;
   std::array<std::uint8_t, kSampleCount> previous_{};
   bool has_previous_ = false;
 };

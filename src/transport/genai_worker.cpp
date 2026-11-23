@@ -7,6 +7,7 @@
 
 #include "httplib.h"
 #include "nlohmann/json.hpp"
+#include "common/metrics.hpp"
 #include "transport/jpeg_base64.hpp"
 
 namespace edge {
@@ -32,13 +33,18 @@ Endpoint split_endpoint(const std::string& endpoint) {
 
 }  // namespace
 
-GenAiWorker::GenAiWorker(LlmConfig llm, StorageConfig storage)
-    : GenAiWorker(std::move(llm), std::move(storage), LlmResources{}) {}
+GenAiWorker::GenAiWorker(LlmConfig llm, StorageConfig storage,
+                         std::shared_ptr<Metrics> metrics)
+    : GenAiWorker(std::move(llm), std::move(storage), LlmResources{},
+                  std::move(metrics)) {}
 
-GenAiWorker::GenAiWorker(LlmConfig llm, StorageConfig storage, LlmResources llm_resources)
+GenAiWorker::GenAiWorker(LlmConfig llm, StorageConfig storage,
+                         LlmResources llm_resources,
+                         std::shared_ptr<Metrics> metrics)
     : llm_(std::move(llm)),
       storage_(std::move(storage)),
       selection_(select_llm_model(llm_, llm_resources)),
+      metrics_(std::move(metrics)),
       resources_injected_(!llm_resources.available_models.empty()) {}
 
 GenAiWorker::~GenAiWorker() { stop(); }
@@ -180,6 +186,10 @@ void GenAiWorker::handle(GenAiTask task) {
     latency_ms = std::chrono::duration<double, std::milli>(
                      std::chrono::steady_clock::now() - started)
                      .count();
+    if (metrics_) {
+      // Record both success and failure so the average reflects real latency.
+      metrics_->add_llm_latency_ms(latency_ms);
+    }
     if (!ok) {
       summary.clear();
       llm_failures_.fetch_add(1);

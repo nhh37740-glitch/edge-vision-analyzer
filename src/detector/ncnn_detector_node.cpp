@@ -7,6 +7,7 @@
 #include <iterator>
 #include <utility>
 
+#include "common/metrics.hpp"
 #include "detector/detection_utils.hpp"
 #include "mat.h"
 #include "net.h"
@@ -139,8 +140,9 @@ void decode_output(const ncnn::Mat& out, int input_size, float scale, int pad_x,
 
 }  // namespace
 
-NcnnDetectorNode::NcnnDetectorNode(Options options)
-    : BaseNode("ncnn_detector"), options_(std::move(options)) {
+NcnnDetectorNode::NcnnDetectorNode(Options options, std::shared_ptr<Metrics> metrics)
+    : BaseNode("ncnn_detector"), options_(std::move(options)),
+      metrics_(std::move(metrics)) {
   if (options_.class_names.empty()) {
     options_.class_names.assign(std::begin(kCocoLabels), std::end(kCocoLabels));
   }
@@ -318,6 +320,11 @@ FrameMetaPtr NcnnDetectorNode::process(FrameMetaPtr meta) {
   const auto end = std::chrono::steady_clock::now();
   meta->infer_ms =
       std::chrono::duration<double, std::milli>(end - start).count();
+  if (metrics_) {
+    // Only frames that actually ran inference reach this point; unloaded or
+    // static frames never inflate the reported average.
+    metrics_->add_infer_ms(meta->infer_ms);
+  }
   return meta;
 }
 
