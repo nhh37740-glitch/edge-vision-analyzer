@@ -66,6 +66,7 @@ endif()
 add_library(edge_streamer STATIC
   src/streamer/osd_annotator.cpp
   src/streamer/stream_out_node.cpp
+  src/streamer/rtsp_pusher.cpp
 )
 target_include_directories(edge_streamer PRIVATE ${STB_INCLUDE_DIR})
 target_link_libraries(edge_streamer PUBLIC edge_core edge_common)
