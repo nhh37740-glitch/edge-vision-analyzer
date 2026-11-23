@@ -2,7 +2,7 @@
 
 面向 2GB Armbian 魔百盒的无状态视频分析方案。魔百盒处理手机有线流、运动过滤、目标检测和实时推流，RSS 目标小于 150 MB。联想 PC 提供多模态推理，并独立保存历史事件和未加 OSD 的 JPEG 抓拍。
 
-**当前状态（北京时间 2026-11-23）**：仅初始化目录、配置与设计契约。全部业务能力、构建系统、测试、模型及部署均待实现；当前没有可运行程序、性能实测或发布 Tag。已纳入 PATCH-003，存储服务留待 `v0.3-nous` 实现。
+**当前状态（北京时间 2026-11-23）**：仅初始化目录、配置与设计契约。已纳入 PATCH-003 至 PATCH-005，具备 GitHub Actions 和顶层 CMake 骨架。业务代码、工具链、单测和部署待实现。存储服务留待 `v0.3-nous`。
 
 ## 接力入口
 
@@ -42,8 +42,8 @@ git switch feature/capture
 
 在阅读冷启动文件并收到后续开发指令后，再实现 `v0.1-oculus`。预建任务见 [GitHub Issues](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues)，阶段归档见 [Milestones](https://github.com/nhh37740-glitch/edge-vision-analyzer/milestones)。
 
-构建设计：联想 x86_64 Linux 支持本机离线测试构建，并交叉编译 aarch64 运行产物；魔百盒只运行，不编译大型依赖。`CMakeLists.txt`、`cmake/aarch64-toolchain.cmake` 和运行入口均属于后续交付，本轮仅 `cmake/.gitkeep`，因此尚无可执行的编译或运行命令。正式构建命令随工具链 Issue 落地后补齐，测试不下载模型、不等待真实设备或推理。
+构建设计：联想 x86_64 Linux 支持本机离线测试构建，并交叉编译 aarch64 运行产物；魔百盒只运行，不编译大型依赖。根 [CMakeLists.txt](CMakeLists.txt) 已登记七个静态库的构建骨架。实际目标、`cmake/aarch64-toolchain.cmake` 和运行入口属于后续交付。正式构建命令随工具链 Issue 落地后补齐，测试不下载模型、不等待真实设备或推理。
 
 ## 仓库协作
 
-仓库公开，只上传本项目契约与骨架。初始提交之后所有修改经 PR，仓库仅允许 Squash and merge，并自动删除合并后的分支。main 保护及状态检查接入约定见 [AGENTS.md](AGENTS.md)；状态检查开关已开启，具体交叉编译和单测 CI 后续接入。联想宿主机从与 `main` 同步的 `feature/capture` 接力。
+仓库公开，只上传本项目契约与骨架。初始提交之后所有修改经 PR，仓库仅允许 Squash and merge，并自动删除合并后的分支。main 保护及状态检查接入约定见 [AGENTS.md](AGENTS.md)；`ci-gate` 是主线唯一必需检查。边缘和存储分支检查按改动启用，发版流程需具备全部构建、测试和打包输入。联想宿主机从与 `main` 同步的 `feature/capture` 接力。
