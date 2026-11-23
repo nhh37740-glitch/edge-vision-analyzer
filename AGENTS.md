@@ -1,10 +1,10 @@
 # AGENTS.md — edge-vision-analyzer 开发契约
 
 ## 冷启动必读
-在写代码前，按顺序阅读本文件、`docs/architecture.md`、`docs/api.md`、`docs/roadmap.md`、`config/config.json`；接口机器契约见 `docs/openapi.yaml`。这些仓库文件是接力依据，不依赖聊天记录。执行范围以用户最新指令为准。
+在写代码前，按顺序阅读本文件、`docs/architecture.md`、`docs/api.md`、`docs/roadmap.md`、`config/config.json`；接口机器契约见 `docs/openapi.yaml`，排障记录见 [docs/troubleshooting.md](docs/troubleshooting.md)。这些仓库文件是接力依据，不依赖聊天记录。执行范围以用户最新指令为准。
 
-## 0. 初始化与接力边界（PATCH-001 至 PATCH-005）
-- PATCH-003 的无状态边缘与 PC 存储分工有效。PATCH-004/005 补充仓库协作模板、GitHub Actions 和构建契约。
+## 0. 初始化与接力边界（PATCH-001 至 PATCH-006）
+- PATCH-003 的无状态边缘与 PC 存储分工有效。PATCH-004/005 补充协作模板、GitHub Actions 和构建契约。PATCH-006 规定协作字数和踩坑分流。
 - 初始化交付为文档、配置和骨架。C++ 与 Python 服务实现、依赖工具链、实际单测和部署留待后续开发。当前只核验工作流和文件结构，初始化门禁允许空模块通过。发版前必须具备可全量构建和测试的源文件与打包输入。
 - 初始化文档和骨架通过绑定 Issue 的 PR 走 Squash 合并。合并后快进同步 `feature/capture`，核对远端 `main` 与该分支后停止。接手联想宿主机的 Agent 在收到后续开发指令后再实施业务功能。
 
@@ -31,15 +31,23 @@
 - **纯离线、极速运行**：使用 `tests/fixtures/` 下的极小测试素材或 Mock 对象，整个 `ctest` 套件必须在 5 秒内完成。
 - 不为 getter/setter、纯数据结构或日志打印编写测试。
 
-## 4. 报错强制上云记录（GitHub Issue 规范）
-在配置、交叉编译、链接、部署或运行测试过程中，**只要遇到任何配置错误、编译错误、链接失败或依赖缺失**：
-1. 必须第一时间执行 `gh issue create --label "type:bug,agent-log"` 将问题记录到 GitHub，严禁静默绕过或只在终端日志里一笔带过。
-2. 使用任务模板填写目标、文件范围、最多 5 条具体任务及可验收标准。在对应段落记录：
-   - **复现命令**：触发报错的具体命令
-   - **关键报错日志**：只贴最核心的 10~30 行，不贴全量刷屏日志
-   - **根因判断**：一句话说明原因
-   - **当前状态**：已修复（附 commit hash）/ 待人工处理
-3. 修复通过一个 PR 交付，首行使用 `Fixes #<issue_id>`；合并时自动关闭这一个 Issue。
+## 4. 中文协作与问题分流（PATCH-006）
+
+Issue、PR、评审评论、Discussion 帖子与回复使用简洁中文。命令、路径、必要的原始报错和关联关键词可保留原文。
+
+| 内容 | 上限与必填信息 |
+| --- | --- |
+| Issue 正文 | ≤ 300 字，不含代码块。有报错时只摘核心日志 10～15 行。 |
+| PR 描述 | ≤ 400 字。写明关联 Issue、改动清单和本地编译与单测结果。 |
+| Issue、PR、评审和 Discussion 的评论或回复 | ≤ 150 字。直接给结论和命令。 |
+| Discussion 踩坑记录 | ≤ 300 字。固定三段：现象与命令、根因（一句话）、解决命令。 |
+
+PR 首行的 Issue 关联规则继续生效。`pr-policy` 排除围栏代码块后统计剩余正文字符，超过 500 字符时阻止合并。PR 手写上限仍为 400 字。评论与回复的上限通过本契约执行。
+
+遇到问题按以下规则记录，不得静默绕过：
+
+1. 编译、安装、工具链及依赖配置等环境小坑记入本仓库 GitHub Discussions 的 `General` 或 `Q&A`，优先使用 `gh discussion create` 和 `gh discussion comment`。`gh` 低于 2.94.0 或当前环境不支持该命令时，直接追加到 [docs/troubleshooting.md](docs/troubleshooting.md)。已解决的环境或编译问题，无论是否已发 Discussion，都在该文件留一条不超过 5 行的记录。
+2. 代码逻辑缺陷或阻塞当前任务的问题开 GitHub Issue，标签使用 `type:bug,agent-log`。按任务模板写明范围及验收标准，包括复现命令、关键报错、一句话根因和当前状态。修复 PR 首行写 `Fixes #<issue_id>`，合并时关闭对应 Issue。
 
 ## 5. Git 与发版规范
 - 一个 Issue 只对应一个模块的一项明确功能，或一个 `agent-log` 具体报错。使用 `.github/ISSUE_TEMPLATE/task.md` 写明涉及目录／文件和可验证的验收标准。禁止混入跨里程碑工作。实现按所列范围修改文件。

@@ -2,7 +2,7 @@
 
 状态：有效设计；全部业务能力待实现。更新日期：2026-11-23（北京时间）。
 
-本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-005。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.json](../config/config.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
+本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-006。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.json](../config/config.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
 
 ## 1. 当前执行边界与后续启动条件
 
@@ -376,6 +376,6 @@ FastAPI `POST /api/v1/events` 解码干净 JPEG，把图片写入 `cloud-storage
 - 每个核心模块仅保留 3～5 个 GoogleTest 用例；全部 CTest 测试应在 5 秒内完成。不为 getter / setter、纯数据结构和日志打印编写测试。
 - 单元测试只使用 `tests/fixtures/` 的极小素材、Mock 或回环桩；不自动下载权重，不等候真实摄像头或 LLM。真实硬件验收单独执行、单独记证据。
 - 常规 C++ 开发只按 [AGENTS.md](../AGENTS.md) 执行必要构建与 CTest，PC 服务独立验证，不把 Python 服务并入 ARM64 编译；不新增环境自检、摘要校验或重复 wrapper。本轮仍禁止构建、实现和测试，只做文档／骨架静态检查。
-- 遇到配置、交叉编译、链接、部署或测试错误，按 AGENTS 的 `type:bug` + `agent-log` Issue 四项格式记录；公开日志不包含密钥、真实私人影像或私人路径。
+- 问题按 AGENTS 第 4 节分流。环境小坑记入 Discussions，已解决的补录 [踩坑记录](troubleshooting.md)。代码缺陷或阻塞问题记入 `type:bug,agent-log` Issue。
 - 后续交接至少记录：任务／Issue、获准范围、分支与完整提交 SHA、已改文件、实际运行的验证及结果、未完成项和下一步。状态明确区分“已修改／已验证／已构建／已部署／线上已验收”。
 - 里程碑完成后更新本文件的实际状态与对应证据，接口变化同步 api / openapi，配置变化同步 config；不要把计划测试和预期指标写成已经发生的结果。
