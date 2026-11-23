@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: verify-and-package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install native dependencies and ARM64 compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libgtest-dev g++-aarch64-linux-gnu
+      - name: Native CMake build and offline CTest
+        run: |
+          cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build build-native --parallel 2
+          ctest --test-dir build-native --output-on-failure --no-tests=error
+      - name: Install Python dependencies
+        run: python3 -m pip install -r cloud-storage/requirements.txt pytest httpx
+      - name: Strict Python validation
+        run: |
+          python3 -m py_compile cloud-storage/server.py
+          python3 -m pytest -q cloud-storage
+      - name: ARM64 cross-compile
+        run: |
+          cmake -S . -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-toolchain.cmake -DBUILD_TESTING=OFF
+          cmake --build build-arm64 --parallel 2
+      - name: Package the installed ARM64 executable, config and service
+        id: package
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cmake --install build-arm64 --prefix staging
+          test -x staging/bin/edge-vision-analyzer
+          install -D config/config.json staging/config/config.json
+          install -D deploy/edge-vision.service staging/deploy/edge-vision.service
+          archive="edge-vision-analyzer-${RELEASE_TAG}-arm64.tar.gz"
+          tar -czf "$archive" -C staging .
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+      - name: Save the validated release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-vision-analyzer-arm64
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+
+  publish:
+    name: publish-release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: edge-vision-analyzer-arm64
+          path: dist
+      - name: Create the release and upload its archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" "dist/edge-vision-analyzer-${RELEASE_TAG}-arm64.tar.gz" --verify-tag --generate-notes --title "$RELEASE_TAG"
