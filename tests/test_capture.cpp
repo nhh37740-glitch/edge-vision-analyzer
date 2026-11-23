@@ -8,9 +8,11 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -23,11 +25,15 @@ extern "C" {
 #include "capture/capture_node.hpp"
 #include "capture/remux_recorder.hpp"
 #include "common/metrics.hpp"
+#include "core/base_node.hpp"
+#include "core/frame_meta.hpp"
 #include "core/node_state.hpp"
 
 namespace {
 
+using edge::BaseNode;
 using edge::CaptureNode;
+using edge::FrameMetaPtr;
 using edge::Metrics;
 using edge::NodeState;
 
@@ -278,6 +284,100 @@ bool wait_for(const std::function<bool()>& predicate) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
   return predicate();
+}
+
+// Downstream probe attached to CaptureNode. It keeps every frame that reaches
+// it so tests can assert on the RGB24 metadata seen outside the capture loop.
+class CollectingNode : public BaseNode {
+ public:
+  CollectingNode() : BaseNode("CollectingNode") {}
+
+  std::size_t frame_count() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return frames_.size();
+  }
+
+  std::vector<FrameMetaPtr> frames() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return frames_;
+  }
+
+ protected:
+  FrameMetaPtr process(FrameMetaPtr meta) override {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      frames_.push_back(meta);
+    }
+    return nullptr;
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  std::vector<FrameMetaPtr> frames_;
+};
+
+TEST(Capture, EmitsRgb24FramesWithMonotonicIds) {
+  TempVideo video;
+  ASSERT_TRUE(video.valid());
+  auto metrics = std::make_shared<Metrics>();
+  auto options = capture_options(video.path(), true);
+  options.width = 640;
+  options.height = 480;
+  CaptureNode node(options, metrics);
+  auto collector = std::make_shared<CollectingNode>();
+  node.attach_next(collector);
+
+  collector->start();
+  node.start();
+  ASSERT_TRUE(wait_for([&collector] { return collector->frame_count() >= 3; }));
+  node.stop();
+  collector->stop();
+
+  const auto frames = collector->frames();
+  ASSERT_GE(frames.size(), 3u);
+  std::uint64_t previous_id = 0;
+  for (const auto& frame : frames) {
+    ASSERT_NE(frame, nullptr);
+    EXPECT_EQ(frame->width, 640);
+    EXPECT_EQ(frame->height, 480);
+    EXPECT_EQ(frame->rgb_data.size(), static_cast<std::size_t>(640) * 480 * 3);
+    EXPECT_NE(frame->frame_id, 0u);
+    EXPECT_GT(frame->frame_id, previous_id);
+    previous_id = frame->frame_id;
+  }
+  EXPECT_GE(metrics->capture_frames(), frames.size());
+}
+
+TEST(Capture, EmitsNewFrameIdsAfterEofRewind) {
+  TempVideo video;
+  ASSERT_TRUE(video.valid());
+  CaptureNode node(capture_options(video.path(), true), std::make_shared<Metrics>());
+  auto collector = std::make_shared<CollectingNode>();
+  node.attach_next(collector);
+
+  collector->start();
+  node.start();
+
+  ASSERT_TRUE(wait_for([&collector] { return collector->frame_count() >= 1; }));
+  const auto first_batch = collector->frames();
+  ASSERT_FALSE(first_batch.empty());
+  const std::uint64_t first_id = first_batch.front()->frame_id;
+
+  // The fixture holds five frames, so a sixth frame can only arrive after the
+  // capture loop has reached EOF, seeked back and flushed the decoder.
+  ASSERT_TRUE(wait_for([&collector] { return collector->frame_count() >= 6; }));
+  node.stop();
+  collector->stop();
+
+  const auto frames = collector->frames();
+  ASSERT_GE(frames.size(), 6u);
+  EXPECT_GT(frames.back()->frame_id, first_id);
+  std::uint64_t previous_id = 0;
+  for (const auto& frame : frames) {
+    ASSERT_NE(frame, nullptr);
+    EXPECT_GT(frame->frame_id, previous_id);
+    previous_id = frame->frame_id;
+  }
 }
 
 TEST(Capture, DecodesLocalVideoAndLoopsPastEof) {
