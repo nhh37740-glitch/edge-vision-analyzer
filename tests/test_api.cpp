@@ -1,7 +1,12 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "api/api_server.hpp"
 #include "common/config.hpp"
@@ -40,6 +45,44 @@ class FakeSourceControl : public edge::SourceControl {
   std::string name_ = "CaptureNode";
   std::string source_ = "original";
   bool loop_ = true;
+};
+
+// Minimal streamer stand-in: one tiny JPEG that is always available. The
+// bytes only need the JPEG SOI marker; clients never decode this test image.
+class FakeStreamCallbacks {
+ public:
+  FakeStreamCallbacks()
+      : jpeg_(std::make_shared<const std::vector<std::uint8_t>>(
+            std::vector<std::uint8_t>{0xFF, 0xD8, 0xFF, 0xDB, 0x00, 0x01})) {}
+
+  edge::StreamCallbacks as_callbacks() {
+    edge::StreamCallbacks callbacks;
+    callbacks.subscribe = [this] { subscriptions.fetch_add(1); };
+    callbacks.unsubscribe = [this] { subscriptions.fetch_sub(1); };
+    callbacks.request_snapshot = [this] {
+      snapshot_requests.fetch_add(1);
+      seq.fetch_add(1);
+    };
+    callbacks.wait_for_jpeg = [this](std::uint64_t after_seq, std::chrono::milliseconds) {
+      std::uint64_t current = seq.load();
+      if (current <= after_seq) {
+        seq.store(after_seq + 1);
+      }
+      // A live capture node produces frames; pace the fake so the stream
+      // provider does not spin while the test client is still attached.
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      return jpeg_;
+    };
+    callbacks.latest_jpeg_seq = [this] { return seq.load(); };
+    return callbacks;
+  }
+
+  std::atomic<int> subscriptions{0};
+  std::atomic<int> snapshot_requests{0};
+
+ private:
+  std::shared_ptr<const std::vector<std::uint8_t>> jpeg_;
+  std::atomic<std::uint64_t> seq{0};
 };
 
 Config api_config() {
@@ -131,6 +174,96 @@ TEST(Api, ImmediateStopAfterStartDoesNotHang) {
   ASSERT_TRUE(api.start(error)) << error;
   EXPECT_GT(api.port(), 0);
   api.stop();
+}
+
+TEST(Api, SnapshotServesJpegAndRejectsWithoutCallbacks) {
+  auto source_control = std::make_shared<FakeSourceControl>();
+  auto metrics = std::make_shared<Metrics>();
+  auto streamer = std::make_shared<FakeStreamCallbacks>();
+
+  {
+    ApiServer api(api_config(), source_control, metrics, "127.0.0.1",
+                  streamer->as_callbacks());
+    std::string error;
+    ASSERT_TRUE(api.start(error)) << error;
+
+    httplib::Client client("127.0.0.1", api.port());
+    client.set_read_timeout(2, 0);
+    const auto response = client.Get("/api/v1/snapshot.jpg");
+    ASSERT_TRUE(response);
+    EXPECT_EQ(response->status, 200);
+    EXPECT_EQ(response->get_header_value("Content-Type"), "image/jpeg");
+    ASSERT_GE(response->body.size(), 3u);
+    EXPECT_EQ(static_cast<unsigned char>(response->body[0]), 0xFF);
+    EXPECT_EQ(static_cast<unsigned char>(response->body[1]), 0xD8);
+    EXPECT_EQ(static_cast<unsigned char>(response->body[2]), 0xFF);
+    EXPECT_EQ(streamer->snapshot_requests.load(), 1);
+  }
+
+  // Without injected callbacks both endpoints report the unified 503 body.
+  ApiServer api(api_config(), source_control, metrics, "127.0.0.1");
+  std::string error;
+  ASSERT_TRUE(api.start(error)) << error;
+  httplib::Client client("127.0.0.1", api.port());
+  client.set_read_timeout(2, 0);
+
+  const auto snapshot = client.Get("/api/v1/snapshot.jpg");
+  ASSERT_TRUE(snapshot);
+  EXPECT_EQ(snapshot->status, 503);
+  EXPECT_EQ(nlohmann::json::parse(snapshot->body)["error"]["code"].get<std::string>(),
+            "FRAME_UNAVAILABLE");
+
+  const auto stream = client.Get("/api/v1/stream");
+  ASSERT_TRUE(stream);
+  EXPECT_EQ(stream->status, 503);
+  EXPECT_EQ(nlohmann::json::parse(stream->body)["error"]["code"].get<std::string>(),
+            "FRAME_UNAVAILABLE");
+}
+
+TEST(Api, StreamServesMultipartAndUnsubscribesOnDisconnect) {
+  auto source_control = std::make_shared<FakeSourceControl>();
+  auto metrics = std::make_shared<Metrics>();
+  auto streamer = std::make_shared<FakeStreamCallbacks>();
+
+  ApiServer api(api_config(), source_control, metrics, "127.0.0.1",
+                streamer->as_callbacks());
+  std::string error;
+  ASSERT_TRUE(api.start(error)) << error;
+
+  int status = 0;
+  std::string content_type;
+  std::string received;
+  bool saw_part = false;
+  {
+    httplib::Client client("127.0.0.1", api.port());
+    client.set_read_timeout(2, 0);
+    client.Get(
+        "/api/v1/stream",
+        [&](const httplib::Response& response) {
+          status = response.status;
+          content_type = response.get_header_value("Content-Type");
+          return status == 200;
+        },
+        [&](const char* data, std::size_t length) {
+          received.append(data, length);
+          if (received.find("--frame") != std::string::npos &&
+              received.find("Content-Type: image/jpeg") != std::string::npos) {
+            saw_part = true;
+            return false;  // Disconnect after the first multipart header.
+          }
+          return true;
+        });
+  }
+
+  EXPECT_EQ(status, 200);
+  EXPECT_NE(content_type.find("multipart/x-mixed-replace"), std::string::npos);
+  EXPECT_NE(content_type.find("boundary=frame"), std::string::npos);
+  EXPECT_TRUE(saw_part);
+
+  for (int i = 0; i < 200 && streamer->subscriptions.load() != 0; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  EXPECT_EQ(streamer->subscriptions.load(), 0);
 }
 
 }  // namespace
