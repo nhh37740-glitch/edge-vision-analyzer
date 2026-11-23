@@ -41,6 +41,20 @@ class PosixProcessSink final : public ProcessSink {
       return false;
     }
 
+    // The child reports exec failures through this close-on-exec pipe, so the
+    // parent can turn a missing ffmpeg into a clean start() failure instead of
+    // discovering a broken pipe only on the first frame.
+    int exec_fds[2];
+    if (::pipe(exec_fds) != 0) {
+      if (error != nullptr) {
+        *error = std::string("pipe failed: ") + std::strerror(errno);
+      }
+      ::close(pipe_fds[0]);
+      ::close(pipe_fds[1]);
+      return false;
+    }
+    ::fcntl(exec_fds[1], F_SETFD, FD_CLOEXEC);
+
     // Prepare argv before fork so the child only calls async-signal-safe
     // functions between fork and exec.
     std::vector<char*> argv;
@@ -57,15 +71,39 @@ class PosixProcessSink final : public ProcessSink {
       }
       ::close(pipe_fds[0]);
       ::close(pipe_fds[1]);
+      ::close(exec_fds[0]);
+      ::close(exec_fds[1]);
       return false;
     }
 
     if (pid == 0) {
+      ::close(exec_fds[0]);
       ::dup2(pipe_fds[0], STDIN_FILENO);
       ::close(pipe_fds[0]);
       ::close(pipe_fds[1]);
       ::execvp(argv[0], argv.data());
+      const int exec_error = errno;
+      const ssize_t ignored = ::write(exec_fds[1], &exec_error, sizeof(exec_error));
+      (void)ignored;
       ::_exit(127);
+    }
+
+    ::close(exec_fds[1]);
+    int exec_error = 0;
+    ssize_t reported;
+    do {
+      reported = ::read(exec_fds[0], &exec_error, sizeof(exec_error));
+    } while (reported < 0 && errno == EINTR);
+    ::close(exec_fds[0]);
+    if (reported > 0) {
+      ::close(pipe_fds[1]);
+      int status = 0;
+      while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+      }
+      if (error != nullptr) {
+        *error = "exec failed: " + std::string(std::strerror(exec_error));
+      }
+      return false;
     }
 
     ::close(pipe_fds[0]);
@@ -290,14 +328,16 @@ bool RtspPusher::start() {
   return true;
 }
 
-void RtspPusher::push(const FrameMeta& frame) {
+void RtspPusher::push(const FrameMeta& frame) { push(frame.rgb_data); }
+
+void RtspPusher::push(const std::vector<std::uint8_t>& rgb_data) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!running_.load()) {
     return;
   }
   const std::size_t expected = static_cast<std::size_t>(width_) *
                                static_cast<std::size_t>(height_) * 3u;
-  if (frame.rgb_data.size() != expected) {
+  if (rgb_data.size() != expected) {
     ++dropped_;
     return;
   }
@@ -305,7 +345,7 @@ void RtspPusher::push(const FrameMeta& frame) {
     ++dropped_;
     return;
   }
-  queue_.emplace_back(frame.rgb_data);
+  queue_.emplace_back(rgb_data);
   cv_.notify_one();
 }
 

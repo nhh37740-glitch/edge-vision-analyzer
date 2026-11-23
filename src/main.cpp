@@ -18,6 +18,7 @@
 #include "core/build_info.hpp"
 #include "detector/motion_node.hpp"
 #include "detector/ncnn_detector_node.hpp"
+#include "streamer/rtsp_pusher.hpp"
 #include "streamer/stream_out_node.hpp"
 #include "transport/event_tracker_node.hpp"
 #include "transport/genai_worker.hpp"
@@ -143,7 +144,17 @@ int main(int argc, char** argv) {
   }
   auto tracker = std::make_shared<edge::EventTrackerNode>(std::move(event_options));
 
-  auto stream_out = std::make_shared<edge::StreamOutNode>();
+  // RTSP is opt-in. In mjpeg mode no encoder process is created at all; the
+  // MJPEG endpoint keeps encoding on demand. Geometry and rate follow the
+  // decoded frame stream.
+  std::shared_ptr<edge::RtspPusher> rtsp_pusher;
+  if (config.streamer.mode == "rtsp") {
+    rtsp_pusher = std::make_shared<edge::RtspPusher>(
+        config.streamer.mode, config.streamer.rtsp_url, config.input.width,
+        config.input.height, config.input.target_fps);
+  }
+
+  auto stream_out = std::make_shared<edge::StreamOutNode>(2, rtsp_pusher);
 
   capture->attach_next(motion);
   motion->attach_next(detector);
@@ -169,6 +180,12 @@ int main(int argc, char** argv) {
   if (worker) {
     worker->start();
   }
+  if (rtsp_pusher && !rtsp_pusher->start()) {
+    // A missing ffmpeg or unreachable RTSP server must not take down the
+    // pipeline: log the cause and keep the MJPEG endpoint available.
+    std::fprintf(stderr, "RtspPusher: %s; MJPEG output remains available\n",
+                 rtsp_pusher->last_error().c_str());
+  }
   stream_out->start();
   tracker->start();
   detector->start();
@@ -184,6 +201,9 @@ int main(int argc, char** argv) {
     detector->stop();
     tracker->stop();
     stream_out->stop();
+    if (rtsp_pusher) {
+      rtsp_pusher->stop();
+    }
     if (worker) {
       worker->stop();
     }
@@ -200,12 +220,17 @@ int main(int argc, char** argv) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 
-  // Stop upstream first, then wait for each downstream stage to drain.
+  // Stop upstream first, then wait for each downstream stage to drain. The
+  // streamer node stops before the pusher so no worker can enter push() while
+  // the encoder process is being reaped.
   capture->stop();
   motion->stop();
   detector->stop();
   tracker->stop();
   stream_out->stop();
+  if (rtsp_pusher) {
+    rtsp_pusher->stop();
+  }
   if (worker) {
     worker->stop();
   }

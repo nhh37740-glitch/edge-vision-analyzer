@@ -54,6 +54,9 @@ class RtspPusher {
   // no-op. Returns false and stores last_error() when launching is impossible.
   bool start();
   void push(const FrameMeta& frame);
+  // Pushes an already-rendered RGB24 buffer (for example the OSD output of
+  // StreamOutNode). Same geometry checks and bounded-queue drop policy.
+  void push(const std::vector<std::uint8_t>& rgb_data);
   // Closes stdin, joins the writer thread and reaps the child. Idempotent.
   void stop();
 
