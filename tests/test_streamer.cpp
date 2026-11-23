@@ -5,6 +5,7 @@
 
 #include "core/frame_meta.hpp"
 #include "streamer/osd_annotator.hpp"
+#include "streamer/stream_out_node.hpp"
 
 namespace {
 
@@ -12,6 +13,14 @@ using edge::FrameMeta;
 using edge::TargetBox;
 
 constexpr std::uint8_t kBackground = 0;
+
+// Exposes the protected process() hook so the encoding state machine can be
+// driven synchronously without starting the worker thread.
+class TestStreamOutNode : public edge::StreamOutNode {
+ public:
+  using edge::StreamOutNode::StreamOutNode;
+  using edge::StreamOutNode::process;
+};
 
 FrameMeta make_frame(int width, int height, std::uint8_t fill) {
   FrameMeta frame;
@@ -143,6 +152,65 @@ TEST(OsdAnnotator, EmptyTargetsLeaveBufferUntouched) {
 
   EXPECT_EQ(dst, sentinel);
   EXPECT_EQ(src.rgb_data, original);
+}
+
+TEST(StreamOutNode, SkipsEncodingWithoutDemand) {
+  TestStreamOutNode node;
+  auto frame = std::make_shared<FrameMeta>(make_frame(32, 32, 0x20));
+
+  auto output = node.process(frame);
+
+  EXPECT_EQ(output.get(), frame.get());
+  EXPECT_EQ(node.encoded_frames(), 0U);
+  EXPECT_FALSE(node.latest_jpeg());
+}
+
+TEST(StreamOutNode, PublishesJpegForSubscriberUntilUnsubscribe) {
+  TestStreamOutNode node;
+  node.subscribe();
+
+  auto frame = std::make_shared<FrameMeta>(make_frame(32, 32, 0x20));
+  TargetBox target;
+  target.label = "person";
+  target.score = 0.87f;
+  target.x = 0.25f;
+  target.y = 0.25f;
+  target.w = 0.5f;
+  target.h = 0.5f;
+  frame->targets.push_back(target);
+
+  auto output = node.process(frame);
+
+  EXPECT_NE(output, nullptr);
+  EXPECT_EQ(node.encoded_frames(), 1U);
+  auto jpeg = node.latest_jpeg();
+  ASSERT_TRUE(jpeg);
+  ASSERT_GE(jpeg->size(), 3U);
+  EXPECT_EQ((*jpeg)[0], 0xFF);
+  EXPECT_EQ((*jpeg)[1], 0xD8);
+  EXPECT_EQ((*jpeg)[2], 0xFF);
+
+  node.unsubscribe();
+  node.process(std::make_shared<FrameMeta>(make_frame(32, 32, 0x30)));
+  EXPECT_EQ(node.encoded_frames(), 1U);
+}
+
+TEST(StreamOutNode, ConsumesSnapshotRequestOnlyOnce) {
+  TestStreamOutNode node;
+  node.request_snapshot();
+  EXPECT_TRUE(node.snapshot_pending());
+
+  node.process(std::make_shared<FrameMeta>(make_frame(16, 16, 0x10)));
+  EXPECT_FALSE(node.snapshot_pending());
+  EXPECT_EQ(node.encoded_frames(), 1U);
+  auto first_jpeg = node.latest_jpeg();
+  ASSERT_TRUE(first_jpeg);
+
+  // With no subscribers left and the request consumed, this frame is passed
+  // through without a second encode or a new JPEG.
+  node.process(std::make_shared<FrameMeta>(make_frame(16, 16, 0x30)));
+  EXPECT_EQ(node.encoded_frames(), 1U);
+  EXPECT_EQ(node.latest_jpeg(), first_jpeg);
 }
 
 }  // namespace
