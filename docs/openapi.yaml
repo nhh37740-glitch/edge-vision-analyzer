@@ -623,6 +623,21 @@ components:
       - height
       - target_fps
       - dump_interval_sec
+    ModelCandidate:
+      type: object
+      additionalProperties: false
+      properties:
+        param:
+          type: string
+          minLength: 1
+          example: models/yolo-fastest-v2-fp16.param
+        bin:
+          type: string
+          minLength: 1
+          example: models/yolo-fastest-v2-fp16.bin
+      required:
+      - param
+      - bin
     DetectorConfig:
       type: object
       additionalProperties: false
@@ -638,6 +653,26 @@ components:
         model_bin:
           type: string
           example: models/yolo-fastest-v2.bin
+        quantization:
+          type: string
+          enum:
+          - auto
+          - fp32
+          - fp16
+          - int8
+          default: auto
+          description: auto在设备支持int8且可用内存充足时选int8，其次fp16，否则使用基础模型。
+        model_candidates:
+          type: object
+          additionalProperties: false
+          properties:
+            fp32:
+              $ref: '#/components/schemas/ModelCandidate'
+            fp16:
+              $ref: '#/components/schemas/ModelCandidate'
+            int8:
+              $ref: '#/components/schemas/ModelCandidate'
+          description: 可选的fp32/fp16/int8候选模型，param与bin须成对出现。
         input_size:
           type: integer
           minimum: 1
@@ -665,6 +700,7 @@ components:
       - conf_threshold
       - num_threads
       - target_labels
+      - quantization
     EventConfig:
       type: object
       additionalProperties: false

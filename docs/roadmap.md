@@ -1,6 +1,6 @@
 # Edge Vision Analyzer — 里程碑、内部契约与验收
 
-状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，v0.2 的帧差漏斗 MotionNode 与 NcnnDetectorNode 模块已实现（尚未接入运行入口），v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现（未接入运行入口），PC 存储服务已实现，部署脚本与模板已就绪，离线单测已覆盖上述模块，真机验收待补。更新日期：2026-11-24（北京时间）。
+状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，v0.2 的帧差漏斗 MotionNode、NcnnDetectorNode 与检测量化选型模块已实现（尚未接入运行入口），v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现（未接入运行入口），PC 存储服务已实现，部署脚本与模板已就绪，离线单测已覆盖上述模块，真机验收待补。更新日期：2026-11-24（北京时间）。
 
 本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-009。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.example.json](../config/config.example.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
 
@@ -261,7 +261,7 @@ class BaseNode {
 | 里程碑／规划发版 Tag | 感官意象 | 功能目标 | 当前状态 |
 | --- | --- | --- | --- |
 | `v0.1-oculus` | Oculus，神目／视觉 | 接入手机有线流和本地循环视频，完成采集与基础控制面 | 已实现（本机回环与离线验证）；真机阶段 A 与发版待补 |
-| `v0.2-discern` | Discern，洞察／明辨 | 帧差漏斗与 NCNN 端侧目标检测 | 已实现（未接入运行入口） |
+| `v0.2-discern` | Discern，洞察／明辨 | 帧差漏斗与 NCNN 端侧目标检测 | 已实现（未接入运行入口，含量化选型） |
 | `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 事件聚合与异步投递已实现（未接入运行入口），LLM 量化选型已实现，PC 存储服务已实现；真机验收待补 |
 | `v1.0-vox` | Vox，神谕之声／宣示 | OSD、MJPEG／RTSP、systemd 守护交付 | 模块与部署脚本／模板已就绪；运行入口组装与真机验收待补 |
 
@@ -305,6 +305,7 @@ class BaseNode {
 
 - `src/detector/motion_node.hpp` / `.cpp`。
 - `src/detector/ncnn_detector_node.hpp` / `.cpp`。
+- `src/detector/model_selection.hpp` / `.cpp`：按 `quantization` 与设备资源选择 fp32/fp16/int8 候选模型。
 - `models/README.md`：YOLO-Fastest-v2 / NanoDet-Plus `.param`、`.bin` 获取与放置路径；模型权重不入仓库，不由测试自动下载。
 - `ApiServer` 补充 `PATCH /api/v1/config`，支持原子配置快照热更新；字段、响应与限制见接口契约。
 - `tests/test_detector.cpp`，3～5 个纯离线用例。
@@ -315,14 +316,17 @@ class BaseNode {
 
 `NcnnDetectorNode::process(meta)` 仅在 `has_motion == true` 时调用 `ncnn::Net`。加载模型 `.param` / `.bin`，开启 `use_fp16_arithmetic = true`、ARM NEON，设置 `num_threads = 2`，输入 `320×320`；通过 `from_pixels_resize` 预处理，按 `target_labels`、`conf_threshold` 过滤并执行标准 NMS，写入 `targets` 和 `infer_ms`。
 
+模型加载前由 `select_model()` 按 `detector.quantization` 选型：`auto` 在设备支持 int8 且内存充足时优先 int8，其次 fp16，否则基础模型；显式档位缺失候选时回退基础模型。fp16 档启用 fp16 算术与存储，fp32/int8 档关闭 fp16 算术选项，int8 由 ncnn 的 int8 推理开关控制；候选文件加载失败时再回退基础模型，并通过 `effective_quantization()` 报告实际档位。
+
 热更新覆盖 `detector.motion_mad_threshold`、`detector.conf_threshold`、`llm.enabled`、`llm.cooldown_sec` 和 `storage.enabled`；其中存储开关在 v0.3-nous 接入投递步骤，不把其他配置隐式开放为热更新接口。内部调用信任既定 struct / interface，外部输入按接口契约处理，不堆砌重复防御。
 
-**离线测试，规划 4 个用例：**
+**离线测试（规划 4 个核心用例，另含检测后处理与量化选型用例）：**
 
 1. 静止图被 MAD 漏斗拦截，不触发检测推理。
 2. 变化图超过阈值，放行检测。
 3. 空帧安全透传。
 4. 检测结果按目标类别和阈值过滤，NMS 输出符合预期。
+5. 量化选型：显式档位命中、auto 按内存与指令集选择、候选缺失回退基础模型。
 
 基于本地循环视频记录帧差跳过率、检测 FPS、推理耗时与 RSS，作为本阶段实际结果；没有实测时不填造指标。
 

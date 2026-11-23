@@ -56,6 +56,7 @@ target_include_directories(edge_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(edge_common PUBLIC nlohmann_json::nlohmann_json)
 
 add_library(edge_detector STATIC
+  src/detector/model_selection.cpp
   src/detector/motion_node.cpp
   src/detector/ncnn_detector_node.cpp
 )

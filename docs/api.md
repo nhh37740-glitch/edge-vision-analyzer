@@ -103,13 +103,29 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 | 配置块 | 字段 |
 | --- | --- |
 | `input` | `source`, `loop`, `width`, `height`, `target_fps`, `dump_interval_sec` |
-| `detector` | `motion_mad_threshold`, `model_param`, `model_bin`, `input_size`, `conf_threshold`, `num_threads`, `target_labels` |
+| `detector` | `motion_mad_threshold`, `model_param`, `model_bin`, `input_size`, `conf_threshold`, `num_threads`, `target_labels`, `quantization`, `model_candidates` |
 | `event` | `end_grace_sec` |
 | `llm` | `enabled`, `endpoint`, `model`, `quantization`, `model_candidates`, `prompt`, `cooldown_sec`, `connect_timeout_sec`, `read_timeout_sec`, `jpeg_quality` |
 | `storage` | `enabled`, `endpoint`, `timeout_sec` |
 | `streamer` | `mode`, `http_port`, `rtsp_url` |
 
 `event.max_events_in_memory` 已移除。OpenAPI `Config/LlmConfig` 与公开配置模板字段一致；本地地址等运行参数写入 `config/config.local.json`，该文件不提交仓库。
+
+`detector.quantization` 取 `auto`（默认）、`fp32`、`fp16` 或 `int8`。`detector.model_candidates` 为可选对象，键只能是 `fp32`、`fp16`、`int8`，每项包含成对的 `param` 与 `bin`。`auto` 在设备支持 int8（aarch64 dotprod/asimddp）、可用内存不小于 256 MB 且存在 int8 候选时选 int8，否则在支持 fp16 且内存不小于 128 MB 时选 fp16，否则使用 `model_param`/`model_bin` 基础模型。
+
+```json
+{
+  "detector": {
+    "model_param": "models/yolo-fastest-v2.param",
+    "model_bin": "models/yolo-fastest-v2.bin",
+    "quantization": "auto",
+    "model_candidates": {
+      "fp16": {"param": "models/yolo-fastest-v2-fp16.param", "bin": "models/yolo-fastest-v2-fp16.bin"},
+      "int8": {"param": "models/yolo-fastest-v2-int8.param", "bin": "models/yolo-fastest-v2-int8.bin"}
+    }
+  }
+}
+```
 
 `PATCH :8081/api/v1/config` 使用嵌套结构：
 

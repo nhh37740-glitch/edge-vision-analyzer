@@ -150,6 +150,9 @@ NcnnDetectorNode::NcnnDetectorNode(Options options)
   if (options_.num_threads <= 0) {
     options_.num_threads = 2;
   }
+  if (options_.quantization.empty()) {
+    options_.quantization = "auto";
+  }
   if (options_.max_candidates == 0) {
     options_.max_candidates = 512;
   }
@@ -166,28 +169,71 @@ NcnnDetectorNode::~NcnnDetectorNode() {
 
 bool NcnnDetectorNode::load() {
   loaded_ = false;
+  effective_quantization_.clear();
+  output_names_.clear();
+  net_.reset();
+
+  DetectorConfig config;
+  config.model_param = options_.model_param;
+  config.model_bin = options_.model_bin;
+  config.quantization = options_.quantization;
+  config.model_candidates = options_.model_candidates;
+
+  const DeviceResources resources =
+      has_device_resources_ ? device_resources_ : detect_device_resources();
+  const ModelSelection selection = select_model(config, resources);
+
+  if (selection.param.empty() || selection.bin.empty()) {
+    return false;
+  }
+  if (load_net(selection.param, selection.bin, selection.quantization)) {
+    effective_quantization_ = selection.quantization;
+    return true;
+  }
+
+  // A quantized candidate may be missing on disk or rejected by ncnn. Keep the
+  // pipeline usable by retrying the base model when it differs from the
+  // selection.
+  const bool is_base_model = selection.param == options_.model_param &&
+                             selection.bin == options_.model_bin;
+  if (!is_base_model &&
+      load_net(options_.model_param, options_.model_bin, "fp32")) {
+    effective_quantization_ = "fp32";
+    return true;
+  }
+  return false;
+}
+
+bool NcnnDetectorNode::load_net(const std::string& param,
+                                const std::string& bin,
+                                const std::string& quantization) {
+  loaded_ = false;
   output_names_.clear();
   net_ = std::make_unique<ncnn::Net>();
 
-  if (options_.model_param.empty() || options_.model_bin.empty()) {
+  if (param.empty() || bin.empty()) {
     return false;
   }
-  std::ifstream param_file(options_.model_param, std::ios::binary);
-  std::ifstream bin_file(options_.model_bin, std::ios::binary);
+  std::ifstream param_file(param, std::ios::binary);
+  std::ifstream bin_file(bin, std::ios::binary);
   if (!param_file.good() || !bin_file.good()) {
     return false;
   }
 
+  // fp16 arithmetic is only enabled for an fp16 model. int8 inference uses
+  // ncnn's own switch, and fp32 keeps the fp16 paths off.
+  const bool use_fp16 = quantization == "fp16";
   net_->opt.use_vulkan_compute = false;
-  net_->opt.use_fp16_arithmetic = true;
-  net_->opt.use_fp16_packed = true;
-  net_->opt.use_fp16_storage = true;
+  net_->opt.use_fp16_arithmetic = use_fp16;
+  net_->opt.use_fp16_packed = use_fp16;
+  net_->opt.use_fp16_storage = use_fp16;
+  net_->opt.use_int8_inference = quantization == "int8";
   net_->opt.num_threads = options_.num_threads;
 
-  if (net_->load_param(options_.model_param.c_str()) != 0) {
+  if (net_->load_param(param.c_str()) != 0) {
     return false;
   }
-  if (net_->load_model(options_.model_bin.c_str()) != 0) {
+  if (net_->load_model(bin.c_str()) != 0) {
     net_->clear();
     return false;
   }

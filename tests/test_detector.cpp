@@ -5,8 +5,10 @@
 #include <string>
 #include <vector>
 
+#include "common/config.hpp"
 #include "core/frame_meta.hpp"
 #include "detector/detection_utils.hpp"
+#include "detector/model_selection.hpp"
 #include "detector/motion_node.hpp"
 #include "detector/ncnn_detector_node.hpp"
 
@@ -14,6 +16,13 @@ namespace {
 
 using edge::FrameMeta;
 using edge::FrameMetaPtr;
+
+edge::DetectorConfig make_base_config() {
+  edge::DetectorConfig config;
+  config.model_param = "models/base.param";
+  config.model_bin = "models/base.bin";
+  return config;
+}
 
 // Exposes the protected process() hook so the funnel can be tested without
 // worker threads or downstream nodes.
@@ -91,6 +100,83 @@ TEST(MotionNode, EmptyOrShortFrameIsSafe) {
   auto valid = make_frame(64, 48, 10);
   node.process(valid);
   EXPECT_TRUE(valid->has_motion);
+}
+
+TEST(ModelSelection, ExplicitInt8UsesCandidate) {
+  edge::DetectorConfig config = make_base_config();
+  config.quantization = "int8";
+  config.model_candidates["int8"] = {"models/base-int8.param",
+                                     "models/base-int8.bin"};
+
+  const edge::ModelSelection selection =
+      edge::select_model(config, edge::DeviceResources{512, true, false});
+  EXPECT_EQ(selection.param, "models/base-int8.param");
+  EXPECT_EQ(selection.bin, "models/base-int8.bin");
+  EXPECT_EQ(selection.quantization, "int8");
+  EXPECT_FALSE(selection.fallback);
+}
+
+TEST(ModelSelection, AutoPrefersInt8WithEnoughMemory) {
+  edge::DetectorConfig config = make_base_config();
+  config.quantization = "auto";
+  config.model_candidates["int8"] = {"models/base-int8.param",
+                                     "models/base-int8.bin"};
+  config.model_candidates["fp16"] = {"models/base-fp16.param",
+                                     "models/base-fp16.bin"};
+
+  auto selection =
+      edge::select_model(config, edge::DeviceResources{256, true, true});
+  EXPECT_EQ(selection.quantization, "int8");
+  EXPECT_EQ(selection.param, "models/base-int8.param");
+  EXPECT_FALSE(selection.fallback);
+
+  // Below the int8 threshold fp16 wins when the device supports it.
+  selection =
+      edge::select_model(config, edge::DeviceResources{200, true, true});
+  EXPECT_EQ(selection.quantization, "fp16");
+  EXPECT_EQ(selection.param, "models/base-fp16.param");
+
+  selection =
+      edge::select_model(config, edge::DeviceResources{64, false, false});
+  EXPECT_EQ(selection.quantization, "fp32");
+  EXPECT_EQ(selection.param, "models/base.param");
+  EXPECT_TRUE(selection.fallback);
+}
+
+TEST(ModelSelection, AutoFallsBackToFp16WithoutDotProd) {
+  edge::DetectorConfig config = make_base_config();
+  config.quantization = "auto";
+  config.model_candidates["int8"] = {"models/base-int8.param",
+                                     "models/base-int8.bin"};
+  config.model_candidates["fp16"] = {"models/base-fp16.param",
+                                     "models/base-fp16.bin"};
+
+  // Enough memory but no aarch64 dotprod: int8 is skipped, fp16 wins.
+  const edge::ModelSelection selection =
+      edge::select_model(config, edge::DeviceResources{512, true, false});
+  EXPECT_EQ(selection.quantization, "fp16");
+  EXPECT_EQ(selection.param, "models/base-fp16.param");
+  EXPECT_FALSE(selection.fallback);
+}
+
+TEST(ModelSelection, MissingCandidateFallsBackToBaseModel) {
+  edge::DetectorConfig config = make_base_config();
+  config.quantization = "int8";
+
+  const edge::ModelSelection selection =
+      edge::select_model(config, edge::DeviceResources{512, true, false});
+  EXPECT_EQ(selection.param, "models/base.param");
+  EXPECT_EQ(selection.bin, "models/base.bin");
+  EXPECT_EQ(selection.quantization, "fp32");
+  EXPECT_TRUE(selection.fallback);
+
+  edge::DetectorConfig empty_base;
+  empty_base.quantization = "auto";
+  const edge::ModelSelection empty_selection =
+      edge::select_model(empty_base, edge::DeviceResources{512, true, true});
+  EXPECT_TRUE(empty_selection.param.empty());
+  EXPECT_TRUE(empty_selection.bin.empty());
+  EXPECT_TRUE(empty_selection.fallback);
 }
 
 edge::TargetBox make_box(int class_id, const std::string& label, float score,
