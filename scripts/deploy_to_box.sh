@@ -1,10 +1,28 @@
 #!/usr/bin/env bash
-# PATCH-009 部署占位。本文件只登记流程，v1.0-vox 实现时总长不得超过 50 行。
-# 从联想 PC 执行。输入目标魔百盒 SSH 地址、ARM64 产物和 config/config.local.json。
-# 先取联想 PC 的 Unix 秒，通过 SSH 在魔百盒执行 sudo date -s "@<pc_epoch_seconds>"。
-# 离线重启后若硬件时钟丢失，此步骤先恢复正确的系统时间。
-# 部署前打印目标 /etc/os-release、ldd --version 和 FFmpeg 主版本。
-# 同时打印魔百盒 CPU／SoC 型号（lscpu 或 /proc/device-tree/model）与 free -h，供实测台账记录。
-# scp 传输 ARM64 程序和本地配置，放到 edge-vision.service 约定的位置，再重启该服务。
-# 重启后立即 curl -sf http://<box_ip>:8081/api/v1/health，并通过 SSH 输出最近 20 行
-# journalctl -u edge-vision -n 20。启动或健康请求失败时仍输出日志，再返回非零状态。
+# 魔百盒部署：对时 → 版本 → 发包 → 重启 → 探活 → 日志。只发送构建产物与公开配置模板。
+set -u
+HOST=${1:-${EDGE_BOX_HOST:-}}
+BIN=${2:-}
+CONF=${3:-}
+SERVICE=${4:-edge-vision}
+if [ -z "$HOST" ] || [ -z "$BIN" ] || [ -z "$CONF" ]; then
+  echo "用法: $0 <host> <binary> <config-template> [service]；host 缺省读 EDGE_BOX_HOST" >&2
+  exit 2
+fi
+# 配置模板可落到目标机的 config.local.json，但源文件不能是本机私有配置。
+case "$CONF" in *config.local.json) echo "拒绝发送私有配置: $CONF" >&2; exit 2;; esac
+log_tail() { ssh "$HOST" "journalctl -u '$SERVICE' -n 20 --no-pager"; }
+fail() { echo "失败: $1" >&2; log_tail >&2; exit 1; }
+echo "== 1/6 对时（如提示密码，请输入目标机 sudo 密码）=="
+ssh -t "$HOST" "sudo date -s '@$(date +%s)'" || fail "对时"
+echo "== 2/6 系统与库版本 =="
+ssh "$HOST" '. /etc/os-release 2>/dev/null; echo "OS: ${PRETTY_NAME:-unknown}"; uname -a; echo "CPU/SoC: $(lscpu 2>/dev/null | sed -n "s/^Model name:[[:space:]]*//p" | head -1) $(tr -d "\0" </proc/device-tree/model 2>/dev/null)"; free -h; ldd --version 2>/dev/null | head -1; ffmpeg -version 2>/dev/null | head -1' || fail "系统与库版本"
+echo "== 3/6 发送构建产物与配置模板 =="
+scp "$BIN" "$HOST:/opt/edge-vision-analyzer/bin/" || fail "scp 构建产物"
+scp "$CONF" "$HOST:/opt/edge-vision-analyzer/config/config.local.json" || fail "scp 配置模板"
+echo "== 4/6 重启 $SERVICE =="
+ssh -t "$HOST" "sudo systemctl restart '$SERVICE'" || fail "重启服务"
+echo "== 5/6 探活 http://127.0.0.1:8081/api/v1/health =="
+ssh "$HOST" 'i=0; while [ "$i" -lt 20 ]; do curl -sf --max-time 2 http://127.0.0.1:8081/api/v1/health >/dev/null && exit 0; i=$((i+1)); sleep 1; done; exit 1' || fail "健康检查"
+echo "== 6/6 最近 20 行服务日志 =="
+log_tail || exit 1

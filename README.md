@@ -69,6 +69,35 @@ cmake --build build-arm64 --parallel 2
 
 本机构建基线（ubuntu-24.04／MSYS2 UCRT64）：CMake 3.31.6、Ninja 1.13.2、GCC 13.3.0、GoogleTest 1.14.0；FFmpeg 库版本为 libavformat 60.16.100、libavcodec 60.31.102、libavutil 58.29.100、libswscale 7.5.100；NCNN 固定 Release Tag `20261020`（BSD-3-Clause），由 CMake FetchContent 首次配置时下载并编译。常规 PR 的 `ci-gate` 不运行 C++ 构建，C++ 变更在提交前本地完成构建与 CTest；aarch64 交叉编译和完整测试只在 `v*` Tag 的 Release 工作流执行。测试不下载模型、不等待真实设备或推理。
 
+## 魔百盒部署（脚本与模板已就绪，真机验收待执行）
+
+`scripts/deploy_to_box.sh` 按“对时 → 打印系统与库版本 → 发包 → 重启 → 探活 → 输出最近 20 行日志”执行；任一步失败返回非零并打印 `journalctl -u "$SERVICE" -n 20 --no-pager`。模板与脚本不等于已部署：真机验收待执行，当前不声称魔百盒已运行本服务或日志已由 Fluent Bit 接管。
+
+前置条件：
+
+- 联想 PC 已交叉编译 `build-arm64/edge-vision-analyzer`，并准备公开配置模板 `config/config.example.json`；不要传递本机 `config/config.local.json`、模型权重或令牌。
+- 目标机可 SSH 登录，具备 `sudo`、`curl` 与 systemd；已创建 `/opt/edge-vision-analyzer/bin`、`/opt/edge-vision-analyzer/config`，部署用户可写。
+- 按需安装 [edge-vision.service](deploy/edge-vision.service)、[journald-edge.conf](deploy/journald-edge.conf) 与 [fluent-bit.conf](deploy/fluent-bit.conf)；参数契约见[架构文档](docs/architecture.md)第 9、10 节。
+
+示例地址按现场替换：
+
+```sh
+export EDGE_BOX_HOST=192.168.10.11
+bash scripts/deploy_to_box.sh "$EDGE_BOX_HOST" \
+  build-arm64/edge-vision-analyzer \
+  config/config.example.json \
+  edge-vision
+```
+
+脚本把构件放入目标机 `/opt/edge-vision-analyzer/bin/`，把配置模板落到 `/opt/edge-vision-analyzer/config/config.local.json`，重启 `edge-vision.service` 后在目标机循环请求 `http://127.0.0.1:8081/api/v1/health`。目标机目录需预先准备，脚本不保存也不传递 sudo 密码。
+
+失败排查：
+
+- 任一步失败时脚本会输出最近 20 行服务日志；先核对单元路径、配置文件与 sudo 权限。
+- 对时失败：确认 SSH 用户可执行 `sudo date`，按提示输入目标机密码。
+- scp 失败：确认目标目录存在且可写，构件确为 ARM64 产物。
+- 探活失败：检查 `config.local.json` 的端口、`ffmpeg` 与 glibc 版本，以及 `systemctl status edge-vision`。
+
 ## 仓库协作
 
 仓库公开，只上传本项目契约与骨架。初始提交之后所有修改经 PR，仓库仅允许 Squash and merge，并自动删除合并后的分支。main 保护及状态检查接入约定见 [AGENTS.md](AGENTS.md)；`ci-gate` 是主线唯一必需检查。PR 还会运行 DeepSeek 自动评审，作为辅助信息，不替代 `ci-gate`；评审密钥保存在 GitHub Actions Secrets，不写入仓库。边缘和存储分支检查按改动启用，其中 C++ 构建由本地验证承担；发版流程需具备全部构建、测试和打包输入。发行包提供配置模板，部署时创建自己的 `config/config.local.json`。联想宿主机从与 `main` 同步的 `feature/capture` 接力。
