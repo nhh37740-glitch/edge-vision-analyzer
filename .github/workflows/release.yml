@@ -21,7 +21,25 @@ jobs:
       - name: Install native dependencies and ARM64 compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libgtest-dev nlohmann-json3-dev g++-aarch64-linux-gnu
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libstb-dev libgtest-dev nlohmann-json3-dev g++-aarch64-linux-gnu
+      - name: Install ARM64 FFmpeg development libraries
+        run: |
+          sudo dpkg --add-architecture arm64
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo sed -i 's/^Types: deb$/Types: deb\nArchitectures: amd64/' /etc/apt/sources.list.d/ubuntu.sources
+          else
+            sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
+          fi
+          sudo tee /etc/apt/sources.list.d/ubuntu-ports.sources >/dev/null <<'EOF'
+          Types: deb
+          URIs: http://ports.ubuntu.com/ubuntu-ports
+          Suites: noble noble-updates noble-security
+          Components: main restricted universe multiverse
+          Architectures: arm64
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
+          sudo apt-get update
+          sudo apt-get install -y libavformat-dev:arm64 libavcodec-dev:arm64 libavutil-dev:arm64 libswscale-dev:arm64
       - name: Native CMake build and offline CTest
         run: |
           cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
@@ -34,6 +52,8 @@ jobs:
           python3 -m py_compile cloud-storage/server.py
           python3 -m pytest -q cloud-storage
       - name: ARM64 cross-compile
+        env:
+          PKG_CONFIG_LIBDIR: /usr/lib/aarch64-linux-gnu/pkgconfig
         run: |
           cmake -S . -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-toolchain.cmake -DBUILD_TESTING=OFF
           cmake --build build-arm64 --parallel 2
