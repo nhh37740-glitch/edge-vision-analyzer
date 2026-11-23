@@ -1,10 +1,15 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "core/frame_meta.hpp"
 #include "streamer/osd_annotator.hpp"
+#include "streamer/rtsp_pusher.hpp"
 #include "streamer/stream_out_node.hpp"
 
 namespace {
@@ -211,6 +216,128 @@ TEST(StreamOutNode, ConsumesSnapshotRequestOnlyOnce) {
   node.process(std::make_shared<FrameMeta>(make_frame(16, 16, 0x30)));
   EXPECT_EQ(node.encoded_frames(), 1U);
   EXPECT_EQ(node.latest_jpeg(), first_jpeg);
+}
+
+// Records the ffmpeg command line and simulates its stdin. When `drain` is
+// false every write reports a full pipe, which exercises bounded-queue drops.
+class FakeProcessSink final : public edge::ProcessSink {
+ public:
+  explicit FakeProcessSink(bool drain) : drain_(drain) {}
+
+  bool Start(const std::vector<std::string>& command,
+             std::string* error) override {
+    (void)error;
+    command_ = command;
+    ++start_calls;
+    active.fetch_add(1);
+    return true;
+  }
+
+  std::ptrdiff_t Write(const std::uint8_t* data, std::size_t size) override {
+    (void)data;
+    if (!drain_) {
+      return 0;
+    }
+    bytes_written.fetch_add(size);
+    return static_cast<std::ptrdiff_t>(size);
+  }
+
+  void CloseInput() override { ++close_calls; }
+
+  int Wait() override {
+    ++wait_calls;
+    if (active.load() > 0) {
+      active.fetch_sub(1);
+    }
+    return 0;
+  }
+
+  std::vector<std::string> command_;
+  const bool drain_;
+  int start_calls = 0;
+  int close_calls = 0;
+  int wait_calls = 0;
+  std::atomic<int> active{0};
+  std::atomic<std::size_t> bytes_written{0};
+};
+
+bool has_pair(const std::vector<std::string>& args, const std::string& flag,
+              const std::string& value) {
+  for (std::size_t i = 0; i + 1 < args.size(); ++i) {
+    if (args[i] == flag && args[i + 1] == value) {
+      return true;
+    }
+  }
+  return false;
+}
+
+TEST(RtspPusher, MjpegModeDoesNotLaunchProcess) {
+  auto sink = std::make_shared<FakeProcessSink>(true);
+  FrameMeta frame = make_frame(32, 24, 0x10);
+  edge::RtspPusher pusher("mjpeg", "rtsp://127.0.0.1:8554/edge", 32, 24, 15,
+                          "ffmpeg", sink);
+
+  EXPECT_FALSE(pusher.start());
+  EXPECT_EQ(sink->start_calls, 0);
+  EXPECT_EQ(sink->active.load(), 0);
+
+  pusher.push(frame);
+  EXPECT_EQ(pusher.dropped_frames(), 0u);
+
+  pusher.stop();
+  EXPECT_EQ(sink->wait_calls, 0);
+}
+
+TEST(RtspPusher, RtspCommandContainsRequiredArguments) {
+  auto sink = std::make_shared<FakeProcessSink>(true);
+  edge::RtspPusher pusher("rtsp", "rtsp://127.0.0.1:8554/edge", 320, 240, 15,
+                          "/usr/bin/ffmpeg", sink);
+  ASSERT_TRUE(pusher.start());
+  pusher.push(make_frame(320, 240, 0));
+  pusher.stop();
+
+  const std::vector<std::string>& args = sink->command_;
+  ASSERT_FALSE(args.empty());
+  EXPECT_EQ(args.front(), "/usr/bin/ffmpeg");
+  EXPECT_TRUE(has_pair(args, "-f", "rawvideo"));
+  EXPECT_TRUE(has_pair(args, "-pix_fmt", "rgb24"));
+  EXPECT_TRUE(has_pair(args, "-s", "320x240"));
+  EXPECT_TRUE(has_pair(args, "-r", "15"));
+  EXPECT_TRUE(has_pair(args, "-i", "-"));
+  EXPECT_TRUE(has_pair(args, "-c:v", "libx264"));
+  EXPECT_TRUE(has_pair(args, "-preset", "ultrafast"));
+  EXPECT_TRUE(has_pair(args, "-tune", "zerolatency"));
+  EXPECT_TRUE(has_pair(args, "-b:v", "500k"));
+  EXPECT_TRUE(has_pair(args, "-f", "rtsp"));
+  EXPECT_EQ(args.back(), "rtsp://127.0.0.1:8554/edge");
+  EXPECT_EQ(sink->wait_calls, 1);
+  EXPECT_EQ(sink->active.load(), 0);
+}
+
+TEST(RtspPusher, StopReapsProcessAndFullPipeDropsFrames) {
+  auto sink = std::make_shared<FakeProcessSink>(false);
+  edge::RtspPusher pusher("rtsp", "rtsp://127.0.0.1:8554/edge", 4, 4, 10,
+                          "ffmpeg", sink);
+  ASSERT_TRUE(pusher.start());
+  EXPECT_EQ(sink->active.load(), 1);
+
+  EXPECT_TRUE(pusher.start());  // repeated start must not spawn again
+  EXPECT_EQ(sink->start_calls, 1);
+
+  FrameMeta frame = make_frame(4, 4, 0x7f);
+  for (int i = 0; i < 20; ++i) {
+    pusher.push(frame);
+  }
+  EXPECT_GT(pusher.dropped_frames(), 0u);
+
+  pusher.stop();
+  EXPECT_EQ(sink->close_calls, 1);
+  EXPECT_EQ(sink->wait_calls, 1);
+  EXPECT_EQ(sink->active.load(), 0);
+
+  pusher.stop();  // idempotent
+  EXPECT_EQ(sink->wait_calls, 1);
+  EXPECT_EQ(sink->close_calls, 1);
 }
 
 }  // namespace
