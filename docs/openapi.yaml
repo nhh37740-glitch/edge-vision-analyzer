@@ -1,0 +1,765 @@
+openapi: 3.0.3
+info:
+  title: Edge Vision Analyzer 边缘端 API
+  version: 0.1.0
+  description: 设计契约，全部端点待实现。初始化只发布文档，不代表服务已运行。版本代号为 v0.1-oculus / v0.2-discern / v0.3-nous / v1.0-vox。
+servers:
+- url: http://192.168.10.11:8081
+  description: 离线静态组网的魔百盒示例；部署时替换为实际地址。
+tags:
+- name: v0.1-oculus
+  description: 采集与基础控制面，待实现。
+- name: v0.2-discern
+  description: 检测与配置热更新，待实现。
+- name: v0.3-nous
+  description: 事件聚合与异步语义分析，待实现。
+- name: v1.0-vox
+  description: OSD、快照和推流，待实现。
+paths:
+  /api/v1/health:
+    get:
+      operationId: getHealth
+      summary: 存活、节点线程与上游健康状态
+      tags:
+      - v0.1-oculus
+      x-implementation-status: planned
+      responses:
+        '200':
+          description: 成功。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      description: 探活仅检查已有节点状态和上游可达性，不触发真实多模态生成；上游不可达用 200/degraded 表示。
+  /api/v1/stats:
+    get:
+      operationId: getStats
+      summary: 读取性能与资源统计
+      tags:
+      - v0.1-oculus
+      x-implementation-status: planned
+      responses:
+        '200':
+          description: 成功。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stats'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/config:
+    get:
+      operationId: getConfig
+      summary: 读取脱敏后的生效配置
+      tags:
+      - v0.1-oculus
+      x-implementation-status: planned
+      responses:
+        '200':
+          description: 成功。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Config'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+    patch:
+      operationId: patchConfig
+      summary: 原子热更新四个允许字段
+      tags:
+      - v0.2-discern
+      x-implementation-status: planned
+      responses:
+        '200':
+          description: 返回更新后的完整生效配置，api_key 已脱敏。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Config'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigPatch'
+            example:
+              detector:
+                motion_mad_threshold: 8.0
+                conf_threshold: 0.5
+              llm:
+                enabled: true
+                cooldown_sec: 15
+      description: 不持久化修改磁盘配置；不支持改源、模型、线程数、密钥或监听端口。整份请求先校验后原子发布；任一字段失败则全部不变。
+  /api/v1/source/switch:
+    post:
+      operationId: switchSource
+      summary: 在线切换手机流或本地视频源
+      tags:
+      - v0.1-oculus
+      x-implementation-status: planned
+      responses:
+        '200':
+          description: 成功。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceSwitchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceSwitchRequest'
+      description: 成功后提交新输入源及 loop；打开或解码初始化失败返回 400，保留原源继续工作。
+  /api/v1/events:
+    get:
+      operationId: listEvents
+      summary: 查询内存环形事件表
+      tags:
+      - v0.3-nous
+      x-implementation-status: planned
+      responses:
+        '200':
+          description: 成功。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        description: 最多返回的事件条数；超出范围返回 400。
+        schema:
+          type: integer
+          minimum: 1
+          default: 20
+          maximum: 100
+      description: 最多保存 100 条；返回最近事件优先。total_in_buffer 是完整环形表当前条数，events 最多为 limit 条。
+  /api/v1/snapshot.jpg:
+    get:
+      operationId: getSnapshot
+      summary: 读取最新带 OSD 标注的 JPEG
+      tags:
+      - v1.0-vox
+      x-implementation-status: planned
+      responses:
+        '200':
+          description: JPEG 二进制。
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      description: 尚无首帧返回 503；仅请求快照或有活跃流客户端时进行 JPEG 编码。
+  /api/v1/stream:
+    get:
+      operationId: getStream
+      summary: 订阅实时标注 MJPEG
+      tags:
+      - v1.0-vox
+      x-implementation-status: planned
+      responses:
+        '200':
+          description: '持续响应；Content-Type: multipart/x-mixed-replace; boundary=frame。每个部分包含 Content-Type:
+            image/jpeg，以 --frame 分隔。'
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: no-cache
+          content:
+            multipart/x-mixed-replace; boundary=frame:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      description: HTTP 头发送前若无可用首帧可返回 503/JSON；开始流后不再插入 JSON 错误体，断线由客户端重连。慢客户端不得形成无界队列。
+components:
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              description: 供程序处理的稳定错误码。
+              example: INVALID_PARAMETER
+            message:
+              type: string
+              description: 简短错误说明；不包含凭据。
+              example: motion_mad_threshold must be between 0.0 and 255.0
+          required:
+          - code
+          - message
+      required:
+      - error
+    NodeHealth:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          example: CaptureNode
+        state:
+          type: string
+          enum:
+          - starting
+          - running
+          - stopping
+          - stopped
+          - failed
+          - not_enabled
+      required:
+      - name
+      - state
+    UpstreamHealth:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          description: 上游不可达不等于边缘进程死亡；不得在探活中等待真实生成。
+          enum:
+          - disabled
+          - reachable
+          - unreachable
+          - unknown
+        endpoint:
+          type: string
+          description: 不含凭据的上游 health 地址。
+          format: uri
+          example: http://192.168.10.10:8080/health
+      required:
+      - status
+      - endpoint
+    Health:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          description: 本地进程存活而上游不可达时为 degraded，仍返回 200。
+          enum:
+          - ok
+          - degraded
+        version:
+          type: string
+          example: v0.1-oculus
+        uptime_sec:
+          type: number
+          minimum: 0
+          example: 125.4
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/NodeHealth'
+        llm:
+          $ref: '#/components/schemas/UpstreamHealth'
+      required:
+      - status
+      - version
+      - uptime_sec
+      - nodes
+      - llm
+    Stats:
+      type: object
+      additionalProperties: false
+      properties:
+        capture_fps:
+          type: number
+          minimum: 0
+          example: 14.8
+        detect_fps:
+          type: number
+          minimum: 0
+          example: 4.2
+        motion_skip_ratio:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.72
+        avg_infer_ms:
+          type: number
+          minimum: 0
+          example: 84.5
+        avg_llm_latency_ms:
+          type: number
+          minimum: 0
+          example: 6210.0
+        dropped_frames:
+          type: integer
+          minimum: 0
+          format: int64
+          example: 12
+        rss_memory_mb:
+          type: number
+          minimum: 0
+          example: 142.6
+      required:
+      - capture_fps
+      - detect_fps
+      - motion_skip_ratio
+      - avg_infer_ms
+      - avg_llm_latency_ms
+      - dropped_frames
+      - rss_memory_mb
+      description: 累计丢帧与运行统计；尚未启用或尚无样本的阶段指标为 0。RSS 目标不超过 300MB；超限时仍如实报告实际测量值。
+    InputConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        source:
+          type: string
+          description: 手机 HTTP MJPEG / RTSP 地址或本地视频相对路径。
+          minLength: 1
+          example: http://192.168.10.12:8080/video
+        loop:
+          type: boolean
+          default: false
+        width:
+          type: integer
+          minimum: 1
+          default: 640
+        height:
+          type: integer
+          minimum: 1
+          default: 480
+        target_fps:
+          type: number
+          minimum: 0
+          default: 15
+          exclusiveMinimum: true
+        dump_interval_sec:
+          type: number
+          minimum: 0
+          default: 2
+      required:
+      - source
+      - loop
+      - width
+      - height
+      - target_fps
+      - dump_interval_sec
+    DetectorConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        motion_mad_threshold:
+          type: number
+          minimum: 0
+          default: 8.0
+          maximum: 255
+        model_param:
+          type: string
+          example: models/yolo-fastest-v2.param
+        model_bin:
+          type: string
+          example: models/yolo-fastest-v2.bin
+        input_size:
+          type: integer
+          minimum: 1
+          default: 320
+        conf_threshold:
+          type: number
+          minimum: 0
+          default: 0.5
+          maximum: 1
+        num_threads:
+          type: integer
+          minimum: 1
+          default: 2
+        target_labels:
+          type: array
+          items:
+            type: string
+          example:
+          - person
+      required:
+      - motion_mad_threshold
+      - model_param
+      - model_bin
+      - input_size
+      - conf_threshold
+      - num_threads
+      - target_labels
+    EventConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        end_grace_sec:
+          type: number
+          minimum: 0
+          default: 5
+        max_events_in_memory:
+          type: integer
+          minimum: 1
+          default: 100
+          maximum: 100
+      required:
+      - end_grace_sec
+      - max_events_in_memory
+    PublicLlmConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+          default: true
+        endpoint:
+          type: string
+          format: uri
+          example: http://192.168.10.10:8080/v1/chat/completions
+        api_key:
+          type: string
+          description: 响应中始终脱敏；原始配置值不得从 API 返回。
+          enum:
+          - '***'
+          example: '***'
+        model:
+          type: string
+          example: vlm-local
+        prompt:
+          type: string
+          example: 用一句简短的中文描述画面中人物正在做什么。
+        cooldown_sec:
+          type: number
+          minimum: 0
+          default: 15
+        connect_timeout_sec:
+          type: number
+          minimum: 0
+          default: 3
+          exclusiveMinimum: true
+        read_timeout_sec:
+          type: number
+          minimum: 0
+          default: 25
+          exclusiveMinimum: true
+        jpeg_quality:
+          type: integer
+          minimum: 1
+          default: 70
+          maximum: 100
+      required:
+      - enabled
+      - endpoint
+      - api_key
+      - model
+      - prompt
+      - cooldown_sec
+      - connect_timeout_sec
+      - read_timeout_sec
+      - jpeg_quality
+    StreamerConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        mode:
+          type: string
+          enum:
+          - mjpeg
+          - rtsp
+          default: mjpeg
+        http_port:
+          type: integer
+          minimum: 1
+          default: 8081
+          maximum: 65535
+        rtsp_url:
+          type: string
+          format: uri
+          example: rtsp://127.0.0.1:8554/edge
+      required:
+      - mode
+      - http_port
+      - rtsp_url
+    Config:
+      type: object
+      additionalProperties: false
+      properties:
+        input:
+          $ref: '#/components/schemas/InputConfig'
+        detector:
+          $ref: '#/components/schemas/DetectorConfig'
+        event:
+          $ref: '#/components/schemas/EventConfig'
+        llm:
+          $ref: '#/components/schemas/PublicLlmConfig'
+        streamer:
+          $ref: '#/components/schemas/StreamerConfig'
+      required:
+      - input
+      - detector
+      - event
+      - llm
+      - streamer
+      description: 当前生效配置的公开响应视图，字段覆盖 config/config.json；llm.api_key 始终为 ***。
+    DetectorPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        motion_mad_threshold:
+          type: number
+          minimum: 0
+          maximum: 255
+        conf_threshold:
+          type: number
+          minimum: 0
+          maximum: 1
+      minProperties: 1
+    LlmPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+        cooldown_sec:
+          type: number
+          minimum: 0
+      minProperties: 1
+    ConfigPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        detector:
+          $ref: '#/components/schemas/DetectorPatch'
+        llm:
+          $ref: '#/components/schemas/LlmPatch'
+      description: 仅允许这四个叶子字段。先验证整份请求，再原子发布新配置快照；无效字段、未知字段、空对象或越界值返回 400，不改变生效配置。
+      minProperties: 1
+    SourceSwitchRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        source:
+          type: string
+          minLength: 1
+          example: assets/demo_clip.mp4
+        loop:
+          type: boolean
+          example: true
+      required:
+      - source
+      - loop
+    SourceSwitchResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum:
+          - switched
+        source:
+          type: string
+          example: assets/demo_clip.mp4
+        loop:
+          type: boolean
+          example: true
+      required:
+      - status
+      - source
+      - loop
+    TargetBox:
+      type: object
+      additionalProperties: false
+      properties:
+        class_id:
+          type: integer
+          minimum: 0
+          example: 0
+        label:
+          type: string
+          example: person
+        score:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.87
+        x:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.21
+        y:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.15
+        w:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.3
+        h:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.68
+      required:
+      - label
+      - score
+      - x
+      - y
+      - w
+      - h
+      description: 检测框坐标相对画面归一化为 [0,1]，x/y 为左上角。
+    Event:
+      type: object
+      additionalProperties: false
+      properties:
+        event_id:
+          type: string
+          example: evt_1795412000_1
+        start_ts_ms:
+          type: integer
+          minimum: 0
+          format: int64
+          example: 1795412000123
+        end_ts_ms:
+          type: integer
+          minimum: 0
+          format: int64
+          example: 1795412008450
+        status:
+          type: string
+          description: 生命周期动作 new/update/end；资源状态为 active 或 ended。
+          enum:
+          - active
+          - ended
+        top_label:
+          type: string
+          example: person
+        top_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.87
+        boxes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TargetBox'
+        llm_summary:
+          type: string
+          description: 未完成、关闭或失败时可为空字符串。
+          example: 一名男子正经过客厅走向门口。
+        llm_latency_ms:
+          type: number
+          minimum: 0
+          example: 5840.2
+      required:
+      - event_id
+      - start_ts_ms
+      - end_ts_ms
+      - status
+      - top_label
+      - top_score
+      - boxes
+      - llm_summary
+      - llm_latency_ms
+      description: active 事件的 end_ts_ms 持续更新到最近一次目标出现的时间。环形表容量为 100；LLM 结果异步回填。
+    EventsResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        total_in_buffer:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 1
+        events:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/Event'
+      required:
+      - total_in_buffer
+      - events
+  responses:
+    BadRequest:
+      description: 请求参数、字段范围或源初始化错误；切源失败保留原源。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: 请求资源或路径不存在。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: 边缘端内部错误。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unavailable:
+      description: 尚无首帧、节点未就绪或服务暂不可用。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

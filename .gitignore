@@ -1,0 +1,48 @@
+# Build output and local IDE settings
+/build*/
+/out/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+*.o
+*.a
+*.so
+*.so.*
+*.exe
+*.dll
+*.dylib
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Credentials and machine-local configuration
+.env
+.env.*
+!.env.example
+/config/*.local.json
+*.pem
+*.key
+
+# Model weights, recordings and runtime output
+/models/*.param
+/models/*.bin
+/models/*.gguf
+/models/*.onnx
+/models/*.safetensors
+/assets/*
+!/assets/.gitkeep
+!/assets/README.md
+/failed_frames/
+/snapshots/
+/recordings/
+/logs/
+*.log
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.ts
+# Small offline fixtures may be added explicitly in a later milestone.
+!/tests/fixtures/*.mp4
+!/tests/fixtures/*.mkv
