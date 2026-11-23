@@ -25,7 +25,7 @@ add_library(edge_common STATIC
   src/common/metrics.cpp
 )
 target_include_directories(edge_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(edge_common PUBLIC edge_core nlohmann_json::nlohmann_json)
+target_link_libraries(edge_common PUBLIC nlohmann_json::nlohmann_json)
 
 # Future libraries keep their own sources and direct dependencies:
 #   edge_common    -> nlohmann_json::nlohmann_json
