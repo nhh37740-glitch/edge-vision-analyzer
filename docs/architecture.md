@@ -210,4 +210,4 @@ PC `cloud-storage :8090` 的 `POST /api/v1/logs` 接收 Fluent Bit JSON 数组�
 
 魔百盒没有可维持时钟的 RTC 电池时，离线重启可能丢失正确时间。部署流程先通过 SSH 用联想 PC 的系统时间对时，再重启边缘服务。若仍收到异常的事件时间，PC 存储服务按 [API 契约](api.md) 以接收时刻作为事件时间戳，并据此选择图片日期目录。
 
-[scripts/deploy_to_box.sh](../scripts/deploy_to_box.sh) 已实现部署流程；[scripts/start_pc_services.sh](../scripts/start_pc_services.sh) 仍是启动流程的占位。目标机的发行版和运行库基线在部署前读取。持续推理时可从边缘统计观察 SoC 温度，手动处理实测过热；已知限制见 [踩坑记录](troubleshooting.md)。
+[scripts/deploy_to_box.sh](../scripts/deploy_to_box.sh) 已实现部署流程；[scripts/start_pc_services.sh](../scripts/start_pc_services.sh) 已实现启动流程，真实模型联调待联想 PC 执行。目标机的发行版和运行库基线在部署前读取。持续推理时可从边缘统计观察 SoC 温度，手动处理实测过热；已知限制见 [踩坑记录](troubleshooting.md)。
