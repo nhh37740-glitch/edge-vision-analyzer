@@ -22,7 +22,7 @@
 
 1. 手机开启 IP Webcam，提供 HTTP MJPEG 或 RTSP；魔百盒经有线局域网拉流。
 2. 后续获准实现并部署 `v0.1-oculus` ARM64 产物后，在魔百盒上验证稳定截帧并保存 `.jpg`。
-3. 通过规划中的 `--record-clip assets/demo_clip.mp4 --duration 20` 录制 15～30 秒缓存视频，内容同时包含静止背景与人物活动；直接 remux，不重新编码，输出仅保留视频轨。
+3. 通过已实现的 `--record-clip assets/demo_clip.mp4 --duration 20` 录制 15～30 秒缓存视频，内容同时包含静止背景与人物活动；直接 remux，不重新编码，输出仅保留视频轨。
 4. 在线切换到该本地视频并稳定循环运行，作为阶段 A 的结束条件。上述截帧与录片只在用户显式执行阶段 A 时保留，不扩展为常态历史留存或失败补偿。真实手机地址、素材和运行结果由现场验收记录确认，本轮不连接摄像头或录片。
 
 ### 阶段 B：无人值守持续开发
@@ -148,81 +148,119 @@ edge-vision-analyzer/
 
 ### 3.4 `FrameMeta` / `TargetBox` 内部数据契约
 
-以下仅为文档内的规划接口，不在本轮创建头文件。框坐标归一化到 `[0, 1]`；各阶段只填充自己负责的结果字段。
+以下契约已落地于 `src/core/frame_meta.hpp`。框坐标归一化到 `[0, 1]`；各阶段只填充自己负责的结果字段。
 
 ```cpp
 #pragma once
+
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
+namespace edge {
+
 struct TargetBox {
-    int class_id = -1;
-    std::string label;
-    float score = 0.0f;
-    float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
+  int class_id = -1;
+  std::string label;
+  float score = 0.0f;
+  float x = 0.0f;
+  float y = 0.0f;
+  float w = 0.0f;
+  float h = 0.0f;
 };
 
 struct FrameMeta {
-    uint64_t frame_id = 0;
-    int64_t timestamp_ms = 0;
-    int width = 0;
-    int height = 0;
-    std::vector<uint8_t> rgb_data;  // CaptureNode 填充；下游共享读取
-    bool has_motion = false;       // MotionNode 填充
-    float motion_score = 0.0f;
-    std::vector<TargetBox> targets; // NcnnDetectorNode 填充
-    double infer_ms = 0.0;
-    std::string active_event_id;    // EventTrackerNode 填充
+  std::uint64_t frame_id = 0;
+  std::int64_t timestamp_ms = 0;
+  int width = 0;
+  int height = 0;
+  std::vector<std::uint8_t> rgb_data;  // Filled by CaptureNode; read-only downstream.
+  bool has_motion = false;             // Filled by MotionNode.
+  float motion_score = 0.0f;
+  std::vector<TargetBox> targets;  // Filled by NcnnDetectorNode.
+  double infer_ms = 0.0;
+  std::string active_event_id;  // Filled by EventTrackerNode.
 };
 
 using FrameMetaPtr = std::shared_ptr<FrameMeta>;
+
+}  // namespace edge
 ```
 
 ### 3.5 `BaseNode` 内部接口契约
 
 ```cpp
 #pragma once
-#include "bounded_queue.hpp"
-#include "frame_meta.hpp"
+
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "core/bounded_queue.hpp"
+#include "core/frame_meta.hpp"
+#include "core/node_state.hpp"
+
+namespace edge {
+
 class BaseNode {
-public:
-    explicit BaseNode(std::string name, size_t queue_capacity = 2);
-    virtual ~BaseNode();
-    void attach_next(std::shared_ptr<BaseNode> next);
-    void push(FrameMetaPtr meta);
-    virtual void start();
-    virtual void stop();
-    const std::string& name() const { return name_; }
+ public:
+  explicit BaseNode(std::string name, std::size_t queue_capacity = 2);
+  virtual ~BaseNode();
 
-protected:
-    virtual FrameMetaPtr process(FrameMetaPtr meta) = 0;
-    void emit(FrameMetaPtr meta); // 分发给所有 next_nodes_
+  BaseNode(const BaseNode&) = delete;
+  BaseNode& operator=(const BaseNode&) = delete;
 
-private:
-    void run_loop();
-    std::string name_;
-    BoundedQueue<FrameMetaPtr> in_queue_;
-    std::vector<std::shared_ptr<BaseNode>> next_nodes_;
-    std::thread worker_;
-    std::atomic<bool> running_{false};
+  void attach_next(std::shared_ptr<BaseNode> next);
+  void push(FrameMetaPtr meta);
+  void start();
+  void stop();
+
+  bool running() const;
+  NodeState state() const;
+  const std::string& name() const;
+  std::uint64_t dropped_frames() const;
+
+  // 进程内所有节点的累计丢帧；stats 与该值合并。
+  static std::uint64_t total_dropped_frames();
+
+ protected:
+  virtual FrameMetaPtr process(FrameMetaPtr meta);  // 默认透传
+  virtual void run();
+  void emit(FrameMetaPtr meta);
+  bool stop_requested() const;
+  void set_state(NodeState state);
+
+ private:
+  void record_dropped_frame();
+
+  std::string name_;
+  BoundedQueue<FrameMetaPtr> input_queue_;
+  std::atomic<std::uint64_t> dropped_frames_{0};
+  std::vector<std::shared_ptr<BaseNode>> next_nodes_;
+  std::mutex next_mutex_;
+  std::mutex lifecycle_mutex_;
+  std::thread worker_;
+  std::atomic<bool> running_{false};
+  std::atomic<NodeState> state_{NodeState::kStopped};
+  bool stopped_once_ = false;
 };
+
+}  // namespace edge
 ```
 
-`BoundedQueue<FrameMetaPtr>` 必须有固定容量和丢旧帧行为。`BaseNode` 负责统一队列、单工作线程和下游分发；`CaptureNode` 作为源节点运行解封装循环。`start()` / `stop()` 和信号退出应能结束处理与等待，不遗留线程。具体实现与有限测试在获准的对应里程碑中完成。
+`BoundedQueue<FrameMetaPtr>` 具有固定容量和丢旧帧行为。`BaseNode` 负责统一队列、单工作线程和下游分发；`CaptureNode` 作为源节点运行解封装循环。节点状态定义在 `src/core/node_state.hpp`；`start()` / `stop()` 与信号退出会结束处理和等待，且 `stop()` 后再 `start()` 为空操作。节点在入队丢旧和停止时丢弃队列帧都会累计 `dropped_frames`，`stats` 合并 `Metrics` 与 `BaseNode::total_dropped_frames()`（Issue #55）。上述契约已由 `src/core/base_node.cpp`、`src/core/bounded_queue.hpp` 实现，`test_core` 覆盖丢旧、丢帧计数、串联、停止 join 与重复启动。
 
 ## 4. 里程碑与具体交付
 
 | 里程碑／规划发版 Tag | 感官意象 | 功能目标 | 当前状态 |
 | --- | --- | --- | --- |
-| `v0.1-oculus` | Oculus，神目／视觉 | 接入手机有线流和本地循环视频，完成采集与基础控制面 | 待实现 |
+| `v0.1-oculus` | Oculus，神目／视觉 | 接入手机有线流和本地循环视频，完成采集与基础控制面 | 已实现（本机回环与离线验证）；真机阶段 A 与发版待补 |
 | `v0.2-discern` | Discern，洞察／明辨 | 帧差漏斗与 NCNN 端侧目标检测 | 待实现 |
 | `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 待实现 |
 | `v1.0-vox` | Vox，神谕之声／宣示 | OSD、MJPEG／RTSP、systemd 守护交付 | 待实现 |
@@ -233,13 +271,13 @@ private:
 
 **全部交付件：**
 
-- 补齐 [CMakeLists.txt](../CMakeLists.txt) 的实际静态库、运行与测试目标；`cmake/aarch64-toolchain.cmake` 已在 Issue #1 创建，后续 Issue 继续加入本里程碑的模块目标。支持 x86_64 本机测试和 aarch64 交叉编译。依赖矩阵见 [架构构建契约](architecture.md)。
+- [CMakeLists.txt](../CMakeLists.txt) 已建立实际静态库、运行与测试目标；`cmake/aarch64-toolchain.cmake` 已在 Issue #1 创建，后续 Issue 继续在 v0.2+ 加入对应模块目标。支持 x86_64 本机测试和 aarch64 交叉编译。依赖矩阵见 [架构构建契约](architecture.md)。
 - `src/core/frame_meta.hpp`、`bounded_queue.hpp`、`base_node.hpp`、`base_node.cpp`：统一元数据、丢旧帧队列和节点基类。
 - `src/common/config.hpp` / `.cpp`、`metrics.hpp` / `.cpp`：配置加载、原子热更新基础与 FPS／耗时／`/proc/self/statm` RSS 统计。`soc_temp_c` 仅用于压测观测。
 - `src/capture/capture_node.hpp` / `.cpp`、`frame_dumper.hpp` / `.cpp`：FFmpeg 拉流、本地循环、仅视频 remux 录片与按间隔保存 JPEG。
-- 后续创建 `src/main.cpp` 的最小采集/控制面运行入口与录片命令行装配，使阶段 A 有可运行产物；`v1.0-vox` 再完善完整流水线组装与交付。
+- `src/main.cpp` 已实现最小采集/控制面运行入口与 `--record-clip`／`--duration` 录片命令行装配；`v1.0-vox` 再完善完整流水线组装与交付。
 - `src/api/api_server.hpp` / `.cpp`：挂载 `GET /api/v1/health`、`GET /api/v1/stats`、`GET /api/v1/config`、`POST /api/v1/source/switch`。
-- `tests/test_capture.cpp`、`tests/test_api.cpp` 与极小离线 fixture；后续编译、交叉编译和阶段 A 的实际验收记录。
+- `tests/test_capture.cpp`（当前 2 个用例）、`tests/test_api.cpp` 与极小离线 fixture；本机已构建并运行离线测试，Issue #51 补充采集用例。aarch64 交叉编译与阶段 A 真机验收待补。
 
 **内部架构：**
 
@@ -247,7 +285,7 @@ private:
 
 本地文件 `loop == true` 且遇到 `AVERROR_EOF` 时执行 `av_seek_frame` + `avcodec_flush_buffers`；按 `target_fps` 用 `steady_clock` 节流。网络流断线后间隔 2 秒重连。切源失败必须保留原源，返回接口规定的 400 错误；不能先销毁旧源再报告失败。
 
-**离线测试，控制在 3～5 个用例：**
+**离线测试，目标 3～5 个用例。当前 `tests/test_capture.cpp` 已有 2 个采集用例（本地解码/EOF 循环、非法源保留原源），其余采集用例由 Issue #51 补齐；`tests/test_api.cpp` 已覆盖健康探针、切源与快速启停回环。**
 
 1. 极小本地测试视频能读出帧，RGB24 尺寸和元数据符合契约。
 2. EOF 后循环重置，刷新解码器，能继续读帧。
@@ -257,7 +295,7 @@ private:
 
 **阶段 A 真机验收：**
 
-在联想宿主机完成 ARM64 交叉编译；经单独授权部署到魔百盒后，成功拉取手机 IP Webcam 流，按配置保存 `.jpg`，录制含静止与人物运动的 `assets/demo_clip.mp4`，再切换为该视频稳定循环。编译通过、部署完成、现场通路验收分别记录，不能混写为“上线可用”。
+在联想宿主机完成 ARM64 交叉编译；经单独授权部署到魔百盒后，成功拉取手机 IP Webcam 流，按配置保存 `.jpg`，录制含静止与人物运动的 `assets/demo_clip.mp4`，再切换为该视频稳定循环。本机 x86_64 构建与离线测试已完成；ARM64 交叉编译与阶段 A 真机验收待补。编译通过、部署完成、现场通路验收分别记录，不能混写为“上线可用”。
 
 ### 4.2 `v0.2-discern` — 帧差漏斗与 NCNN 端侧检测
 

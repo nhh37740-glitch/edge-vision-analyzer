@@ -62,21 +62,20 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
   "version": "v0.1-oculus",
   "uptime_sec": 125.4,
   "nodes": [
-    {"name": "CaptureNode", "state": "running"},
-    {"name": "NcnnDetectorNode", "state": "not_enabled"}
+    {"name": "CaptureNode", "state": "running"}
   ],
   "llm": {
-    "status": "reachable",
+    "status": "unknown",
     "endpoint": "http://192.168.10.10:8080/health"
   },
   "storage": {
-    "status": "reachable",
+    "status": "unknown",
     "endpoint": "http://192.168.10.10:8090/health"
   }
 }
 ```
 
-节点状态为 `starting/running/stopping/stopped/failed/not_enabled`。两个上游分别报告 `disabled/reachable/unreachable/unknown`；尚未接入的阶段如实报告未启用或未知。边缘进程存活而已启用的上游不可达时，返回 200、`status: degraded`。探活只检查连通状态，不能触发真实多模态生成或存储写入，也不能让边缘存活探针等待推理。
+节点状态为 `starting/running/stopping/stopped/failed/not_enabled`。两个上游分别报告 `disabled/reachable/unreachable/unknown`。当前实现仅在 `CaptureNode` 失败时返回 200、`status: degraded`；LLM/Storage 的上游探活在 `v0.3-nous` 接入，接入前启用时报告 `unknown`，关闭时报告 `disabled`，不会因上游不可达单独触发 `degraded`。探活只检查连通状态，不能触发真实多模态生成或存储写入，也不能让边缘存活探针等待推理。
 
 `GET :8081/api/v1/stats` 成功示例：
 
@@ -93,7 +92,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 }
 ```
 
-保留原统计中无冲突的平均 LLM 耗时和累计丢帧指标。未启用或尚无样本的阶段指标返回 0。无状态边缘节点 RSS 目标严格 **小于 150MB**；实际超限仍须如实报告测量值。
+保留原统计中无冲突的平均 LLM 耗时和累计丢帧指标。未启用或尚无样本的阶段指标返回 0。`dropped_frames` 已由 Issue #55 实现：统计节点输入队列满时丢弃的最旧帧和节点停止时丢弃的队列帧，并与 Metrics 累计值合并返回；无丢帧时为 0。无状态边缘节点 RSS 目标严格 **小于 150MB**；实际超限仍须如实报告测量值。
 
 可选字段 `soc_temp_c` 为可空数字，单位摄氏度。读取 Linux `/sys/class/thermal/thermal_zone0/temp` 的毫摄氏度值并除以 1000，例如 62500 对应 `62.5`；读取或解析失败返回 `null`，不使用 0 代替错误。该值仅供压测观测，不触发限频、停机或其他温控动作。Linux 实现已具备，目标机实测待补。
 
@@ -150,7 +149,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 {"status": "switched", "source": "assets/demo_clip.mp4", "loop": true}
 ```
 
-切回手机可使用 `{"source":"http://192.168.10.12:8080/video","loop":false}`，也可使用实际 RTSP 地址。两个字段必填，`source` 为非空字符串。新源打开并完成解码初始化后才提交切换；失败返回 400，继续原视频源。成功后 GET 配置反映新的 `input.source/input.loop`。本地路径相对进程工作目录，交付时以仓库/部署资源根目录运行。
+切回手机可使用 `{"source":"http://192.168.10.12:8080/video","loop":false}`，也可使用实际 RTSP 地址。两个字段必填，`source` 为非空字符串；字段缺失或类型错误返回 400/`INVALID_PARAMETER`。新源打开并完成解码初始化后才提交切换；打开失败、解码初始化失败或录制期间切源返回 400/`INVALID_SOURCE`，继续原视频源。成功后 GET 配置反映新的 `input.source/input.loop`。本地路径相对进程工作目录，交付时以仓库/部署资源根目录运行。
 
 `GET :8081/api/v1/snapshot.jpg` 返回最新实时 OSD JPEG，媒体类型 `image/jpeg`；尚无首帧返回 503/JSON。它是实时展示快照，不是历史干净抓拍。
 

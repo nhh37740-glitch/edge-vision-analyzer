@@ -2,11 +2,11 @@ openapi: 3.0.3
 info:
   title: Edge Vision Analyzer 边缘与云存储 API
   version: 0.1.0
-  description: PATCH-003/007/008/009 两服务设计契约，全部端点待实现。服务仅在同一有线局域网通信；边缘:8081仅实时控制与流媒体，联想PC cloud-storage:8090保存历史事件、图片和接收日志，llama-server:8080仅提供本地推理。不接公有云服务。每个路径单独绑定servers，外部llama-server不在本OpenAPI
+  description: PATCH-003/007/008/009 两服务设计契约。v0.1-oculus 的 health、stats、config 读取与 source-switch 已实现（本机回环与离线验证），其余端点待实现；上游探活与 degraded 在 v0.3-nous 接入。服务仅在同一有线局域网通信；边缘:8081仅实时控制与流媒体，联想PC cloud-storage:8090保存历史事件、图片和接收日志，llama-server:8080仅提供本地推理。不接公有云服务。每个路径单独绑定servers，外部llama-server不在本OpenAPI
     paths中。
 tags:
 - name: v0.1-oculus
-  description: 采集与基础控制面，待实现。
+  description: 采集与基础控制面，已实现（本机回环与离线验证）；上游探活与 degraded 于 v0.3-nous 接入。
 - name: v0.2-discern
   description: 检测与配置热更新，待实现。
 - name: v0.3-nous
@@ -36,7 +36,7 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/Unavailable'
-      description: 检查已有节点状态及:8080/health和:8090/health连通状态，不触发真实推理或存储写入；边缘存活但已启用上游不可达时用200/degraded表示。
+      description: 检查已有节点状态；当前仅 CaptureNode 失败时返回200/degraded。LLM与Storage的上游探活于v0.3-nous接入，接入前启用时报告unknown、关闭时报告disabled，不因上游不可达单独触发degraded，也不触发真实推理或存储写入。
     servers:
     - url: http://192.168.10.11:8081
       description: 魔百盒边缘实时控制与流媒体；此路径只属于边缘端。
@@ -62,7 +62,7 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/Unavailable'
-      description: 读取性能与资源统计，可包含nullable的soc_temp_c温度观测值；温度字段不承担温控。全部指标仍为待实现契约。
+      description: 读取性能与资源统计，可包含nullable的soc_temp_c温度观测值；温度字段不承担温控。采集与控制面指标已实现；检测、跳过率等节点接入后填充，dropped_frames已由Issue #55汇入节点队列丢帧累计。
     servers:
     - url: http://192.168.10.11:8081
       description: 魔百盒边缘实时控制与流媒体；此路径只属于边缘端。
@@ -156,7 +156,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SourceSwitchRequest'
-      description: 成功后提交新输入源及 loop；打开或解码初始化失败返回 400，保留原源继续工作。
+      description: 成功后提交新输入源及 loop；打开或解码初始化失败返回400/INVALID_SOURCE，保留原源继续工作。录制期间禁止切源，同样返回400/INVALID_SOURCE。
     servers:
     - url: http://192.168.10.11:8081
       description: 魔百盒边缘实时控制与流媒体；此路径只属于边缘端。
@@ -490,7 +490,7 @@ components:
       properties:
         status:
           type: string
-          description: 上游不可达不等于边缘进程死亡；不得在探活中等待真实生成。
+          description: 上游不可达不等于边缘进程死亡；不得在探活中等待真实生成。v0.3-nous 接入探活前，启用时报告 unknown，关闭时报告 disabled。
           enum:
           - disabled
           - reachable
@@ -504,14 +504,14 @@ components:
       required:
       - status
       - endpoint
-      description: 单个上游的连通状态。LLM/Storage关闭时为disabled；连接异常不触发实际生成或写入。
+      description: 单个上游的连通状态。v0.3-nous 接入探活前，LLM/Storage 启用时为 unknown、关闭时为 disabled；探活不触发实际生成或写入。
     Health:
       type: object
       additionalProperties: false
       properties:
         status:
           type: string
-          description: 本地进程存活而上游不可达时为 degraded，仍返回 200。
+          description: 当前仅 CaptureNode 失败时为 degraded，仍返回 200；上游探活于 v0.3-nous 接入，未接入时上游状态为 unknown/disabled。
           enum:
           - ok
           - degraded
@@ -567,6 +567,7 @@ components:
           minimum: 0
           format: int64
           example: 12
+          description: 合并Metrics累计与节点队列丢帧（入队丢旧和停止时丢弃）；Issue #55 实现。
         rss_memory_mb:
           type: number
           minimum: 0
@@ -585,7 +586,7 @@ components:
       - avg_llm_latency_ms
       - dropped_frames
       - rss_memory_mb
-      description: 累计丢帧与运行统计；尚未启用或尚无样本的阶段指标为 0。无状态边缘节点 RSS 目标严格小于 150MB；超限时仍如实报告实际测量值。
+      description: 累计丢帧与运行统计；尚未启用或尚无样本的阶段指标为 0，dropped_frames 已由 Issue #55 汇入节点队列丢帧。无状态边缘节点 RSS 目标严格小于 150MB；超限时仍如实报告实际测量值。
     InputConfig:
       type: object
       additionalProperties: false
@@ -1108,7 +1109,7 @@ components:
       description: Fluent Bit HTTP output Format json提交的对象数组；不接收单个对象或原始NDJSON请求。
   responses:
     BadRequest:
-      description: 请求字段、参数范围、Base64/JPEG、图片路径或源初始化错误；切源失败保留原源，重复事件ID返回EVENT_EXISTS。
+      description: 请求字段、参数范围、Base64/JPEG、图片路径、源初始化错误或录制中切源；切源失败保留原源，重复事件ID返回EVENT_EXISTS。
       content:
         application/json:
           schema:
