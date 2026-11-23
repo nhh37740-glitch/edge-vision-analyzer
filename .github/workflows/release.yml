@@ -21,7 +21,7 @@ jobs:
       - name: Install native dependencies and ARM64 compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libgtest-dev g++-aarch64-linux-gnu
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libgtest-dev nlohmann-json3-dev g++-aarch64-linux-gnu
       - name: Native CMake build and offline CTest
         run: |
           cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
