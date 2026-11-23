@@ -51,7 +51,8 @@ class CaptureNode : public BaseNode {
 
   std::shared_ptr<Source> open_source(const std::string& location, bool loop, std::string& error);
   std::shared_ptr<Source> current_source() const;
-  void replace_source(std::shared_ptr<Source> source, const std::string& location, bool loop);
+  std::shared_ptr<Source> install_reconnected_source(const std::shared_ptr<Source>& candidate,
+                                                     const std::string& location, bool loop);
   void mark_source_failed(const std::shared_ptr<Source>& source);
   void handle_packet(const std::shared_ptr<Source>& source, const AVPacket* packet);
   bool sleep_interruptible(std::chrono::milliseconds duration) const;

@@ -16,6 +16,7 @@ extern "C" {
 
 #include "capture/frame_dumper.hpp"
 #include "capture/remux_recorder.hpp"
+#include "core/source_kind.hpp"
 
 namespace edge {
 namespace {
@@ -60,12 +61,6 @@ struct SwsDeleter {
     }
   }
 };
-
-bool is_network_source(const std::string& source) {
-  return source.rfind("http://", 0) == 0 || source.rfind("https://", 0) == 0 ||
-         source.rfind("rtsp://", 0) == 0 || source.rfind("rtmp://", 0) == 0 ||
-         source.rfind("tcp://", 0) == 0;
-}
 
 std::string ffmpeg_error(int code) {
   char buffer[AV_ERROR_MAX_STRING_SIZE] = {0};
@@ -198,12 +193,15 @@ std::shared_ptr<CaptureNode::Source> CaptureNode::current_source() const {
   return source_;
 }
 
-void CaptureNode::replace_source(std::shared_ptr<Source> source, const std::string& location,
-                                 bool loop) {
+std::shared_ptr<CaptureNode::Source> CaptureNode::install_reconnected_source(
+    const std::shared_ptr<Source>& candidate, const std::string& location, bool loop) {
   std::lock_guard<std::mutex> lock(source_mutex_);
-  source_ = std::move(source);
-  source_location_ = location;
-  loop_ = loop;
+  if (!source_) {
+    source_ = candidate;
+    source_location_ = location;
+    loop_ = loop;
+  }
+  return source_;
 }
 
 void CaptureNode::mark_source_failed(const std::shared_ptr<Source>& source) {
@@ -229,7 +227,15 @@ bool CaptureNode::switch_source(const std::string& location, bool loop, std::str
   if (!opened) {
     return false;
   }
-  replace_source(std::move(opened), location, loop);
+
+  std::lock_guard<std::mutex> lock(source_mutex_);
+  if (recording_active_.load()) {
+    error = "cannot switch source while recording";
+    return false;
+  }
+  source_ = std::move(opened);
+  source_location_ = location;
+  loop_ = loop;
   return true;
 }
 
@@ -330,21 +336,23 @@ void CaptureNode::run() {
         }
         continue;
       }
-      replace_source(opened, location, loop);
-      source = std::move(opened);
+      source = install_reconnected_source(opened, location, loop);
       set_state(NodeState::kRunning);
     }
 
     if (!record_attempted_ && !options_.record_path.empty()) {
-      record_attempted_ = true;
-      recorder_ = std::make_unique<RemuxRecorder>();
-      std::string error;
-      if (!recorder_->open(options_.record_path, source->format.get(),
-                           options_.record_duration_sec, error)) {
-        std::fprintf(stderr, "CaptureNode: recording disabled: %s\n", error.c_str());
-        recorder_.reset();
-      } else {
-        recording_active_.store(true);
+      std::lock_guard<std::mutex> lock(source_mutex_);
+      if (source_ == source) {
+        record_attempted_ = true;
+        recorder_ = std::make_unique<RemuxRecorder>();
+        std::string error;
+        if (!recorder_->open(options_.record_path, source->format.get(),
+                             options_.record_duration_sec, error)) {
+          std::fprintf(stderr, "CaptureNode: recording disabled: %s\n", error.c_str());
+          recorder_.reset();
+        } else {
+          recording_active_.store(true);
+        }
       }
     }
 
