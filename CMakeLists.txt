@@ -63,6 +63,13 @@ if(WIN32)
   target_link_libraries(edge_api PUBLIC ws2_32)
 endif()
 
+add_library(edge_streamer STATIC
+  src/streamer/osd_annotator.cpp
+)
+# stb joins this target with StreamOutNode's JPEG encoding (Issue #54 scope is
+# the OSD annotator only).
+target_link_libraries(edge_streamer PUBLIC edge_core edge_common)
+
 add_executable(edge-vision-analyzer src/main.cpp)
 target_link_libraries(edge-vision-analyzer PRIVATE
   edge_core edge_common edge_capture edge_api)
@@ -70,7 +77,6 @@ install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)
 
 # Remaining libraries keep their own sources and direct dependencies:
 #   edge_transport -> edge_core, edge_common, cpp-httplib, stb
-#   edge_streamer  -> edge_core, edge_common, stb
 # FFmpeg and other non-header-only third-party runtime libraries stay dynamic.
 
 if(BUILD_TESTING)
@@ -102,6 +108,12 @@ if(BUILD_TESTING)
     edge_core edge_common edge_api GTest::gtest_main)
   add_test(NAME test_api COMMAND test_api)
   set_tests_properties(test_api PROPERTIES TIMEOUT 5)
+
+  add_executable(test_streamer tests/test_streamer.cpp)
+  target_link_libraries(test_streamer PRIVATE
+    edge_core edge_common edge_streamer GTest::gtest_main)
+  add_test(NAME test_streamer COMMAND test_streamer)
+  set_tests_properties(test_streamer PROPERTIES TIMEOUT 5)
 endif()
 
 # The sole executable and its install rule are added when src/main.cpp lands.
