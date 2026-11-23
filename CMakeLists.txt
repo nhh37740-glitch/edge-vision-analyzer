@@ -41,7 +41,7 @@ target_link_libraries(edge_capture PUBLIC edge_core edge_common PkgConfig::FFMPE
 
 # Future libraries keep their own sources and direct dependencies:
 #   edge_common    -> nlohmann_json::nlohmann_json
-#   edge_capture   -> edge_core, edge_common, FFmpeg
+#   edge_capture   -> edge_core, edge_common, FFmpeg, stb
 #   edge_detector  -> edge_core, edge_common, NCNN
 #   edge_transport -> edge_core, edge_common, cpp-httplib, stb
 #   edge_streamer  -> edge_core, edge_common, stb

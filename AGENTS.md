@@ -104,7 +104,7 @@ PR 首行的 Issue 关联规则继续生效。`pr-policy` 排除围栏代码块�
 | --- | --- |
 | `edge_core` | C++ 标准库、`Threads::Threads` |
 | `edge_common` | `nlohmann_json::nlohmann_json` |
-| `edge_capture` | `edge_core`、`edge_common`、FFmpeg |
+| `edge_capture` | `edge_core`、`edge_common`、FFmpeg、stb |
 | `edge_detector` | `edge_core`、`edge_common`、NCNN |
 | `edge_transport` | `edge_core`、`edge_common`、cpp-httplib、stb |
 | `edge_streamer` | `edge_core`、`edge_common`、stb |
