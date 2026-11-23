@@ -1,100 +1,124 @@
 # Edge Vision Analyzer 架构
 
-状态：有效设计契约，全部能力待实现。维护：项目接力 Agent；日期：2026-11-23（北京时间）。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据；不依赖外部聊天记录。
+状态：有效设计契约，全部业务能力待实现。维护：项目接力 Agent；日期：2026-11-23（北京时间）。PATCH-003 覆盖此前存储与历史事件查询设计。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
 
-## 1. 物理拓扑
+## 1. 物理拓扑与三个服务入口
 
 ```text
 [手机 IP Webcam] ──(Type-C 转网口扩展坞)──┐
                                          │
 [魔百盒 Armbian 2GB] ────(网线)───────────┼──▶ [以太网交换机] ──▶ (可选：上级路由器 DHCP)
-                                         │
+  边缘控制与实时输出 :8081                │
 [联想奔腾 PC 16GB] ──────(网线)───────────┘
-  (交叉编译 + llama-server :8080)
+  交叉编译 + llama-server :8080 + cloud-storage :8090
 ```
 
-所有设备接入同一有线局域网；手机与魔百盒不使用 USB 直连。手机扩展坞若有 PD 供电口，可独立供电并持续推流。该方案避免手机充电/通信占用魔百盒 USB 供电和额外 USB 网络子网；实际延迟、稳定性与供电能力待现场验收，不宣称零延迟或绝对稳定。
+所有设备接入同一有线局域网；手机与魔百盒不使用 USB 直连。手机扩展坞若有 PD 供电口，可独立供电并持续推流。实际延迟、稳定性与供电能力待现场验收。
 
 - 交换机接上级路由器：三台设备通过 DHCP 获取同网段地址，按租约更新配置中的手机和 PC 地址。
-- 交换机离线独立使用：需手动设置同网段静态 IP；纯交换机不提供 DHCP。示例联想 `192.168.10.10`、魔百盒 `192.168.10.11`、手机 `192.168.10.12`，掩码 `255.255.255.0`。离线局域网通信不需要网关和 DNS。
-- 手机视频地址示例为 `http://192.168.10.12:8080/video`；PC 上游为 `http://192.168.10.10:8080`；边缘控制端监听 `0.0.0.0:8081`。手机的实际流路径/以太网设置能力需真机确认。
+- 独立离线交换机：手动设置同网段静态 IP；纯交换机不提供 DHCP。示例联想 `192.168.10.10`、魔百盒 `192.168.10.11`、手机 `192.168.10.12`，掩码 `255.255.255.0`。离线局域网通信不需要网关和 DNS。
+- 手机视频示例 `http://192.168.10.12:8080/video`；LLM `http://192.168.10.10:8080`；PC 存储 `http://192.168.10.10:8090`；边缘控制 `http://192.168.10.11:8081`。手机实际流路径和以太网设置能力需真机确认。
+- PC 的 `llama-server :8080` 与 `cloud-storage :8090` 是两个独立进程，各有 HTTP 入口；不把存储路由挂在 LLM 进程中。
 
 ## 2. 机器职责与资源预算
 
-| 设备 | 职责与约束 |
+| 设备／进程 | 职责与约束 |
 | --- | --- |
-| 联想盒子电脑 | 2021 年奔腾 6 系列，x86_64 Linux，16GB DDR3；开发、本机离线测试、aarch64 交叉编译、常驻多模态 llama-server |
-| 魔百盒 | Amlogic ARMv8 四核 Cortex-A53，Armbian，2GB RAM；只运行边缘产物，禁止在目标机编译大型 C++ 依赖 |
-| 手机 | IP Webcam 提供 HTTP MJPEG 或 RTSP 视频，经有线扩展坞接入交换机 |
+| 联想 PC | 2021 年奔腾 6 系列，x86_64 Linux，16GB DDR3；开发、本机离线验证和 aarch64 交叉编译 |
+| PC `llama-server :8080` | 多模态推理，返回中文场景描述；不负责事件图片持久化和历史查询 |
+| PC `cloud-storage :8090` | 独立 FastAPI + SQLite 模拟云存储，接收干净 JPEG 和结构化结果；保存图片、写库并提供历史查询 |
+| 魔百盒 | Amlogic ARMv8 四核 Cortex-A53，Armbian，2GB RAM；无状态边缘计算，仅实时采集、帧差、检测、瞬时事件聚合、异步投递与流输出；禁止编译大型 C++ 依赖 |
+| 手机 | IP Webcam 提供 HTTP MJPEG 或 RTSP，经有线扩展坞接交换机 |
 
-边缘程序 RSS **≤300MB**。所有节点输入队列有界，默认容量 **2**，满时丢弃最旧帧；GenAI 待处理事件队列容量 **1**，只保留最新任务。事件表容量 **100**；可选失败帧落盘最多 **50** 张循环覆盖。检测线程 **2**，默认输入解码 **640×480 RGB24 / 15 FPS**，检测输入 **320×320**，帧差灰度图 **64×48**。这些是目标与硬约束，并非当前测量结果。
+魔百盒常驻 RSS 必须 **<150MB**。所有节点输入队列有界，默认容量 **2**，满时丢弃最旧帧；Nous 待处理队列容量 **1**，只保留最新任务。只保存当前活跃事件的瞬时 ID、时间、最佳目标等聚合状态，不留本地历史事件表、历史图片缓存或失败任务磁盘队列；结束、丢弃或完成后释放状态／帧引用，不重试积压。
+
+检测线程 **2**；默认解码 **640×480 RGB24 / 15 FPS**，检测输入 **320×320**，帧差灰度 **64×48**。这些是设计目标与约束，并非当前实测结果。
+
+无状态运行仍保留阶段 A 中用户显式要求的 `.jpg` 截帧和 15～30 秒 remux 录片，用于形成阶段 B 素材；它们不是常态事件留存或失败补偿缓存。本轮不实际录制或连接设备。
 
 ## 3. 软件数据流
 
 ```text
-手机有线流 / 本地 demo_clip.mp4（循环）
-      │ 单次拉流；阶段 A 同时 remux 原始 AVPacket 录片
+魔百盒：手机有线流 / 本地 demo_clip.mp4（循环）
+      │ 单次拉流；阶段 A 显式 remux 原始 AVPacket 录片
       ▼
 CaptureNode（FFmpeg → sws_scale → 640×480 RGB24）
-      │ shared_ptr<FrameMeta>；有界队列默认 2，满则丢旧
+      │ shared_ptr<FrameMeta>；节点队列默认 2，满则丢旧
       ▼
-MotionNode（64×48 灰度 MAD，静态帧透传并标记跳过检测）
+MotionNode（64×48 MAD；静态帧透传，跳过检测）
       ▼
-NcnnDetectorNode（仅 has_motion=true 时 NCNN 推理与 NMS）
+NcnnDetectorNode（有运动时 NCNN + NMS）
       ▼
-EventTrackerNode（new / update / end 生命周期）
-      ├────事件任务────▶ GenAiWorker（后台线程，队列 1）
-      │                         │ JPEG 内存编码 → Base64 → llama-server
-      ▼                         │ 结果按 event_id 回填
-StreamOutNode（OSD / 按需 MJPEG / 可选 mediamtx RTSP）
-      │                         ▼
-      └──────────▶ ApiServer :8081 + EventStore（环形 100）
+EventTrackerNode（仅当前活跃事件的瞬时聚合状态）
+      ├──事件触发──▶ GenAiWorker / Nous（单后台线程；队列 1）
+      │                │ 干净帧 JPEG 质量 70，仅编码一次 → Base64
+      │                ├─1. llm.enabled 时 → PC llama-server :8080
+      │                │                    成功取描述，失败描述为空
+      │                └─2. storage.enabled 时 → PC cloud-storage :8090
+      │                     同一 JPEG Base64 + 元数据 + 可选描述
+      ▼
+StreamOutNode（独立 OSD 输出画面；按需 MJPEG / 可选 MediaMTX RTSP）
+      ▼
+ApiServer :8081（实时控制、指标、快照、流；不提供历史查询）
+
+联想 PC cloud-storage :8090
+      ├── storage/images/YYYY-MM-DD/<event_id>.jpg
+      ├── storage/events.db（SQLite 结构化事件）
+      └── 历史分页列表 / 干净抓拍图 HTTP 查询
 ```
 
-所有处理阶段遵循 `BaseNode` + `attach_next()`，每个节点单工作线程；不在 main 中拼接散装线程与多重队列。元数据以 `std::shared_ptr<FrameMeta>` 流转，下游不复制/改写 capture 填充的 RGB 原始缓冲。OSD 阶段按需生成独立输出画面，避免与异步 GenAI 读同帧时产生数据竞争；事件任务持有受限生命周期的帧引用。API 不持有不断增长的历史帧。`FrameMeta` / `TargetBox` / `BaseNode` 的完整设计契约见 [roadmap](roadmap.md)。
+所有 C++ 帧处理阶段遵循 `BaseNode` + `attach_next()`，节点各用单工作线程；不在 main 中拼接散装线程和多重队列。`FrameMetaPtr` 共享采集原始 RGB，下游不改写原缓冲。OSD 按需生成独立输出画面；Nous 使用未画框的干净帧，帧引用生命周期受有界队列和单个在处理任务约束。`shared_ptr` 只负责生命周期，不替代线程同步。完整 `FrameMeta` / `TargetBox` / `BaseNode` 设计见 [roadmap](roadmap.md)。
 
-FrameMeta 包括帧编号、毫秒时间戳、尺寸、RGB 数据、运动标记/分数、目标列表、检测耗时及活动事件 ID；TargetBox 为类别、标签、置信度和 `[0,1]` 归一化坐标。分叉到异步任务后应明确只读字段与写入时机，不能把 shared_ptr 当作线程同步机制。
+Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 以质量 **70** 在内存编码一次，Base64 在两个 HTTP 请求间复用；不把 OSD 图送入分析或保存。LLM 连接／读取超时默认 **3 / 25 秒**；失败将 `llm_summary` 置为 `""`，继续执行已开启的存储步骤。存储请求默认超时 **5 秒**，失败只记必要日志并释放当前任务；不重试、不补建磁盘队列、不阻塞视频线程。关闭 LLM 仍可保存原图与目标元数据；关闭 Storage 不影响推理和实时输出；两个开关都关闭时跳过 Nous 编码／HTTP 工作。
 
-## 4. 开源参考与本项目约束
+事件无目标宽限默认 **5 秒**，触发冷却默认 **15 秒**；连续目标只更新当前活跃状态，不逐帧投递。PC 接收的是触发时代表帧与结构化记录，不要求魔百盒留存历史或等待 PC 反向回填；历史列表以 PC 已成功接收的数据为准，不能宣称投递必达。
 
-| 技术目录 | 开源基线（原始参考） | 采用的模式 / 本项目约束 |
+## 4. PC 云存储边界
+
+`cloud-storage/` 与魔百盒 C++ 交叉编译完全解耦。本轮仅落盘 [README](../cloud-storage/README.md)、[requirements.txt](../cloud-storage/requirements.txt)、[schema.sql](../cloud-storage/schema.sql) 及空服务占位；FastAPI `server.py` 实现在 `v0.3-nous` 后续开发完成。运行时 `cloud-storage/storage/` 整体忽略，不将图片、SQLite 数据库及其运行文件入库。
+
+- 未来 `POST /api/v1/events` 解码 `image_base64`，把原始干净 JPEG 写至 `cloud-storage/storage/images/YYYY-MM-DD/<event_id>.jpg`，结构化元数据和相对路径写入 `cloud-storage/storage/events.db`。
+- SQLite 字段与索引正式依据为 `schema.sql`：`event_id` 主键，帧号、时间、最高置信度目标、目标 JSON、可空描述、LLM 耗时、图片相对路径和创建时间；不保存边缘历史队列。
+- 历史 `GET /api/v1/events?limit=20&offset=0` 与 `GET /api/v1/images/{date}/{filename}` 仅由 PC `:8090` 提供；日期目录、排序、分页、URL、错误及重复 ID 的语义统一见 [api](api.md) / [OpenAPI](openapi.yaml)。边缘 `:8081` 不代理历史接口。
+- `GET /health` 反映云存储数据库连通状态；边缘 `/api/v1/health` 分别反映 LLM 与 Storage 可达性，不把 LLM 存活等同于存储可用。
+
+## 5. 开源参考与本项目约束
+
+| 技术范围 | 开源基线 | 采用的模式／本项目契约 |
 | --- | --- | --- |
-| core | [VideoPipe](https://github.com/sherlockchou86/VideoPipe)（原 video_pipe_c 地址已迁移） | 参考节点连接和元数据流转模式；本项目 BaseNode、默认容量 2 与丢旧策略为自身契约，不宣称是上游原生 API |
-| detector / transport | [Frigate](https://github.com/blakeblackshear/frigate) | 帧差 → 检测 → 事件聚合 → 异步 GenAI 四级漏斗；内存环形事件表与 REST 资源风格 |
-| capture | [FFmpeg demux_decode.c](https://github.com/FFmpeg/FFmpeg/blob/master/doc/examples/demux_decode.c) | 原生 C API 解封装/解码，sws_scale 转 RGB24，不引入 OpenCV；RTSP TCP 与 I/O 超时 |
-| detector | [NCNN](https://github.com/Tencent/ncnn)、[NanoDet](https://github.com/RangiLyu/nanodet/blob/main/demo_ncnn/nanodet.cpp)、[YOLO-FastestV2](https://github.com/dog-qiuqiu/Yolo-FastestV2) | ncnn::Net 加载 .param/.bin，FP16、ARM NEON、2 线程，from_pixels_resize 与 NMS |
-| transport | [llama-server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server)、[cpp-httplib](https://github.com/yhirose/cpp-httplib)、[stb](https://github.com/nothings/stb) | 原生 /health 与 /v1/chat/completions，stbi_write_jpg_to_func 内存编码，零临时图像落盘 |
-| streamer / api | [cpp-httplib](https://github.com/yhirose/cpp-httplib)、[MediaMTX](https://github.com/bluenviron/mediamtx) | REST 与 multipart MJPEG；RTSP 通过 FFmpeg 管道推外部 mediamtx，不自写 RTSP 服务端 |
-| common / tests | [nlohmann/json](https://github.com/nlohmann/json)、[GoogleTest](https://github.com/google/googletest) | JSON 统一序列化；GoogleTest + CTest 离线测试 |
+| 边缘／存储分离 | [Kerberos Agent](https://github.com/kerberos-io/agent)、[Kerberos Vault](https://github.com/kerberos-io/vault) | 参考边缘处理与独立集中存储的职责分离；本项目自定无状态边缘、FastAPI／SQLite 与 8090 API，不声称照搬上游实现或上游本身禁止本地录制 |
+| core | [VideoPipe](https://github.com/sherlockchou86/VideoPipe) | 参考节点连接和元数据流转；本项目 BaseNode、容量 2 丢旧策略为内部契约 |
+| detector / transport | [Frigate](https://github.com/blakeblackshear/frigate) | 帧差 → 检测 → 瞬时事件聚合 → 异步 GenAI；历史持久化迁到 PC |
+| capture | [FFmpeg demux_decode.c](https://github.com/FFmpeg/FFmpeg/blob/master/doc/examples/demux_decode.c) | 原生 C API、sws_scale、RTSP TCP、I/O 超时，不引入 OpenCV |
+| detector | [NCNN](https://github.com/Tencent/ncnn)、[NanoDet](https://github.com/RangiLyu/nanodet/blob/main/demo_ncnn/nanodet.cpp)、[YOLO-FastestV2](https://github.com/dog-qiuqiu/Yolo-FastestV2) | ncnn::Net、FP16／NEON、2 线程、from_pixels_resize 与 NMS |
+| transport | [llama-server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server)、[cpp-httplib](https://github.com/yhirose/cpp-httplib)、[stb](https://github.com/nothings/stb) | 原生健康／多模态接口、内存 JPEG、顺序可选 HTTP 投递 |
+| streamer / api | [cpp-httplib](https://github.com/yhirose/cpp-httplib)、[MediaMTX](https://github.com/bluenviron/mediamtx) | 实时 REST／MJPEG；RTSP 通过 FFmpeg 管道推外部服务 |
+| common / tests | [nlohmann/json](https://github.com/nlohmann/json)、[GoogleTest](https://github.com/google/googletest) | 统一 JSON，少量纯离线 GoogleTest + CTest |
 
-这些是后续实现参考，当前未引入或复制上游源码，依赖版本与许可证随实现登记。FFmpeg 版本冻结时按[官方协议文档](https://ffmpeg.org/ffmpeg-protocols.html)核对 `rtsp_transport=tcp`、`rw_timeout` 及旧 `stimeout` 与所选版本 `timeout` 参数的适用性，不能假设跨版本参数完全相同。llama-server 调用采用其[原生服务契约](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)，外部响应解析见 api 文档。
+当前未引入或复制上游实现；依赖版本和许可随实现登记。FFmpeg 版本冻结时按[官方协议文档](https://ffmpeg.org/ffmpeg-protocols.html)核对 `rtsp_transport=tcp`、`rw_timeout`，及旧 `stimeout` 与所选版本 `timeout` 的适用性。LLM 请求沿用[原生服务契约](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)，不修改上游进程。
 
-## 5. 目录与责任
+## 6. 目录、业务归属与数据归属
 
-```text
-src/{core,common,capture,detector,transport,streamer,api}/
-cmake/  config/  docs/  models/  assets/  scripts/  deploy/  tests/fixtures/
-```
+本次只改设计和骨架，不创建业务实现。业务边界按运行职责拆为两项；下列技术目录各有一个责任范围，不把 HTTP 依赖当作模块归属或跨业务源码复用：
 
-当前仅为技术目录占位，未创建 C++ 或单元测试。目录名不自动等于业务模块或治理中的一级模块；不得据此宣称多个业务共享同一个一级模块。未来每次实施前须按 AGENTS 列清业务归属、专属一级模块、影响范围和功能结果，不把技术依赖写成归属关系。
+| 业务模块 | 专属技术范围 | 数据归属与功能结果 |
+| --- | --- | --- |
+| 边缘实时视觉 | `src/{core,common,capture,detector,transport,streamer,api}/` | 拥有实时帧、检测和活跃事件瞬时状态，提供控制与实时输出；通过契约投递 PC，不维护历史数据 |
+| PC 事件存储 | `cloud-storage/` | 独占图片文件、SQLite 数据库和历史查询；不导入／借用边缘 C++ 一级模块，不参与 ARM64 构建 |
 
-- capture：源接入、循环、录片和截帧的技术实现范围。
-- detector：帧差与 NCNN 检测范围。
-- transport：事件表、生命周期、JPEG/Base64 与异步语义推理范围。
-- streamer：OSD 与输出范围；api 提供控制面并调用明确接口。
-- core/common：当前是待实现的框架和配置契约目录。业务一级模块最终归属清单尚未实施；若与独占规则有冲突，先形成拆分方案，再获对应实现指令，不能借本轮初始化默认放开共享。
+后续每次修改仍须按 AGENTS 给出“业务模块 → 修改／新增的专属一级模块 → 用户功能结果”、文件范围和验收清单；框架、配置等技术目录的实现拆分须符合该独占规则，不以本表默认批准额外代码修改。`llama-server` 是独立外部服务依赖，不归属任何边缘一级模块。
 
-## 6. 数据源、里程碑和验收
+## 7. 阶段验收与本轮交付边界
 
-阶段 A 优先完成手机有线流 → 截帧 JPEG → 15–30 秒原包 remux 录片 → 切换本地循环；阶段 B 使用本地循环素材完成后续无人值守开发。详尽交付与每模块 3–5 个离线验收点集中维护于 [roadmap](roadmap.md)。
+阶段 A：手机有线流 → 用户显式截帧 JPEG → 15～30 秒原包 remux 录片 → 切换本地循环。阶段 B：本地循环素材完成后续无人值守开发。详细文件交付和有限离线测试规划集中在 [roadmap](roadmap.md)。
 
-| 里程碑 / 后续发版 Tag | 责任目标 |
+| 里程碑／后续发版 Tag | 责任目标 |
 | --- | --- |
-| v0.1-oculus（神目） | 采集录片与基础控制面 |
-| v0.2-discern（洞察） | 帧差与 NCNN 检测 |
-| v0.3-nous（神思） | 事件与异步多模态推理 |
-| v1.0-vox（神谕之声） | OSD、视频输出和 systemd 交付 |
+| `v0.1-oculus`（神目） | 采集录片与基础控制面 |
+| `v0.2-discern`（洞察） | 帧差与 NCNN 检测 |
+| `v0.3-nous`（神思） | 瞬时事件聚合、可选推理／存储投递、PC 存储服务实现与历史查询 |
+| `v1.0-vox`（神谕之声） | OSD、视频输出和 systemd 交付 |
 
-GenAI 连接/读取超时分别 **3 / 25 秒**，JPEG 质量 **70**，事件无目标宽限 **5 秒**、调用冷却 **15 秒**；LLM 失败不能阻塞视频流水线。默认 MJPEG 仅在客户端观看或快照请求时编码，无观看和请求时不编码；可选 RTSP 使用 `-preset ultrafast -tune zerolatency -b:v 500k`。录片不重编码，格式兼容性与真实手机输出需阶段 A 验收，不在离线 CI 中自动等设备。
+实时 MJPEG 仍只在观看或快照请求时编码，无请求时不编码；可选 RTSP 使用 `-preset ultrafast -tune zerolatency -b:v 500k`。Nous 的事件 JPEG 编码与实时 OSD 输出编码用途不同，不把两者混用。后续验收需包含关闭上游／超时降级、队列丢旧与释放、优雅退出及 RSS **<150MB**；指标以实测记录为准。
 
-接口路径、错误体、热更新和脱敏以 [api](api.md) / [OpenAPI](openapi.yaml) 为准；示例配置在 [config.json](../config/config.json)。后续交付前需验证 SIGINT/SIGTERM 优雅停止、节点队列清理、异步工作线程退出及 RSS 预算。
+PATCH-003 本轮允许以文档／骨架 PR 合并到受保护 `main`，不关闭保护、不直接推送 main；合并后同步 `feature/capture` 到最新 main 即停止，等待联想宿主机新的开发授权。当前不编写 C++／Python 服务实现、不创建或运行单元测试、不编译、不添加 CI、不部署服务。接口、配置和数据结构的静态检查不等于运行验收。
