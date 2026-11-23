@@ -8,7 +8,7 @@
 
 当前只维护初始化骨架与文档，补充 `cloud-storage/README.md`、`requirements.txt`、`schema.sql` 和空服务占位；运行时 `cloud-storage/storage/` 整体忽略。本文的业务交付件、C++ 代码块和验收场景都是后续设计，不表示实现已经创建或测试已经运行。
 
-当前仓库包含协作模板、GitHub Actions 和根 [CMakeLists.txt](../CMakeLists.txt) 的注释骨架。`cmake/aarch64-toolchain.cmake` 和实际构建目标在 `v0.1-oculus` 实现，FastAPI `server.py` 在 `v0.3-nous` 实现。接手 Agent 在收到开发指令后实施业务，所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
+当前仓库包含协作模板、GitHub Actions、根 [CMakeLists.txt](../CMakeLists.txt) 的 C++17 构建骨架和 `cmake/aarch64-toolchain.cmake`；Issue #1 已使 `edge_core` 与 `test_build` 可构建，其余目标随 `v0.1-oculus` 的各项 Issue 加入。FastAPI `server.py` 在 `v0.3-nous` 实现。接手 Agent 在收到开发指令后实施业务，所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
 每次获准实现前，先列明“业务模块 → 修改／新增的专属一级模块 → 用户可完成的功能”，明确文件范围、数据归属和验收方式。边缘实时视觉独占 `src/` 技术范围，PC 事件存储独占 `cloud-storage/` 及历史数据；两者经 HTTP 契约协作，不互相借用一级模块。具体责任说明以 [architecture](architecture.md) 为准。
 
@@ -86,8 +86,8 @@ edge-vision-analyzer/
 ├── CLAUDE.md
 ├── README.md
 ├── .gitignore
-├── CMakeLists.txt                      # 已有骨架，v0.1-oculus 补可构建目标
-├── cmake/aarch64-toolchain.cmake       # v0.1-oculus 后续实现
+├── CMakeLists.txt                      # C++17 骨架，edge_core 可构建
+├── cmake/aarch64-toolchain.cmake       # 已创建
 ├── config/config.example.json
 ├── docs/
 │   ├── architecture.md
@@ -230,7 +230,7 @@ private:
 
 **全部交付件：**
 
-- 补齐 [CMakeLists.txt](../CMakeLists.txt) 的实际静态库、运行与测试目标，并创建 `cmake/aarch64-toolchain.cmake`，支持 x86_64 本机测试和 aarch64 交叉编译。依赖矩阵见 [架构构建契约](architecture.md)。
+- 补齐 [CMakeLists.txt](../CMakeLists.txt) 的实际静态库、运行与测试目标；`cmake/aarch64-toolchain.cmake` 已在 Issue #1 创建，后续 Issue 继续加入本里程碑的模块目标。支持 x86_64 本机测试和 aarch64 交叉编译。依赖矩阵见 [架构构建契约](architecture.md)。
 - `src/core/frame_meta.hpp`、`bounded_queue.hpp`、`base_node.hpp`、`base_node.cpp`：统一元数据、丢旧帧队列和节点基类。
 - `src/common/config.hpp` / `.cpp`、`metrics.hpp` / `.cpp`：配置加载、原子热更新基础与 FPS／耗时／`/proc/self/statm` RSS 统计。`soc_temp_c` 仅用于压测观测。
 - `src/capture/capture_node.hpp` / `.cpp`、`frame_dumper.hpp` / `.cpp`：FFmpeg 拉流、本地循环、remux 录片与按间隔保存 JPEG。
@@ -379,7 +379,7 @@ FastAPI `POST /api/v1/events` 解码干净 JPEG，把图片写入 `cloud-storage
 
 - 每个核心模块仅保留 3～5 个 GoogleTest 用例；全部 CTest 测试应在 5 秒内完成。不为 getter / setter、纯数据结构和日志打印编写测试。
 - 单元测试只使用 `tests/fixtures/` 的极小素材、Mock 或回环桩；不自动下载权重，不等候真实摄像头或 LLM。真实硬件验收单独执行、单独记证据。
-- 常规 C++ 开发只按 [AGENTS.md](../AGENTS.md) 执行必要构建与 CTest，PC 服务独立验证，不把 Python 服务并入 ARM64 编译；不新增环境自检、摘要校验或重复 wrapper。本轮仍禁止构建、实现和测试，只做文档／骨架静态检查。
+- 常规 C++ 开发只按 [AGENTS.md](../AGENTS.md) 执行必要构建与 CTest，PC 服务独立验证，不把 Python 服务并入 ARM64 编译；不新增环境自检、摘要校验或重复 wrapper。每个 Issue 只执行其获准范围的构建与测试，并记录实际运行结果。
 - 问题按 AGENTS 第 4 节分流。环境小坑记入 Discussions，已解决的补录 [踩坑记录](troubleshooting.md)。代码缺陷或阻塞问题记入 `type:bug,agent-log` Issue。
 - 后续交接至少记录：任务／Issue、获准范围、分支与完整提交 SHA、已改文件、实际运行的验证及结果、未完成项和下一步。状态明确区分“已修改／已验证／已构建／已部署／线上已验收”。
 - 里程碑完成后更新本文件的实际状态与对应证据，接口变化同步 api / openapi，配置变化同步 config；不要把计划测试和预期指标写成已经发生的结果。

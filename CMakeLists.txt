@@ -13,6 +13,7 @@ find_package(Threads REQUIRED)
 
 add_library(edge_core STATIC
   src/core/build_info.cpp
+  src/core/source_kind.cpp
 )
 target_include_directories(edge_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(edge_core PUBLIC Threads::Threads)

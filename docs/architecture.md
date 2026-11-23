@@ -130,7 +130,7 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 
 ## 8. 模块构建与链接边界（PATCH-005）
 
-根 [CMakeLists.txt](../CMakeLists.txt) 当前仅为注释骨架，以 `project(... LANGUAGES NONE)` 避免声明尚无源文件的构建目标。源模块获准落地后启用 CXX，按下表分别创建 `STATIC` 库，不把所有 `.cpp` 填进主程序。
+根 [CMakeLists.txt](../CMakeLists.txt) 已启用 CXX 17；Issue #1 建立了 `edge_core` 静态库、`test_build` 和 `cmake/aarch64-toolchain.cmake`。其余源模块获准落地后，按下表分别创建 `STATIC` 库，不把所有 `.cpp` 填进主程序。
 
 | 项目静态库 | 直接依赖 |
 | --- | --- |
@@ -144,7 +144,7 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 
 未来 `src/main.cpp` 仅作入口，链接上述七个项目静态库形成唯一边缘可执行文件 `edge-vision-analyzer`；FFmpeg 等非头文件第三方底层运行库保持动态链接，不将“项目模块 STATIC”理解为全静态程序。依赖以目标为范围声明，实际 imported target 名称随所选版本登记，不把 FFmpeg 全局注入 core/common 或所有模块。`cloud-storage` 仍为独立 PC 进程，不参与此 C++ 链接图。
 
-源模块落地后引入 `include(CTest)`，每个单测可执行文件仅直接链接 `edge_core`、`edge_common`、被测模块和 `GTest::gtest_main`；被测模块按上表带入自身必要依赖。`test_detector` 不链接 capture、主程序或 FFmpeg。交叉编译设置 `BUILD_TESTING=OFF`；工具链内容仍由后续 Issue #1 完成，本轮不填写。
+`include(CTest)` 已启用；每个单测可执行文件仅直接链接 `edge_core`、`edge_common`、被测模块和 `GTest::gtest_main`；被测模块按上表带入自身必要依赖。`test_detector` 不链接 capture、主程序或 FFmpeg。交叉编译设置 `BUILD_TESTING=OFF`；`cmake/aarch64-toolchain.cmake` 已由 Issue #1 建立，工具链与依赖版本记录在 README。
 
 真实程序目标存在后添加 `install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)`，为 release 打包提供安装目录；当前不创建空目标或声称已经产出二进制。
 

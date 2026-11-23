@@ -112,7 +112,7 @@ PR 首行的 Issue 关联规则继续生效。`pr-policy` 排除围栏代码块�
 
 - `src/main.cpp` 只装配所需模块，最终构建单个 `edge-vision-analyzer`。业务 `.cpp` 留在各自静态库目标。通过目标声明链接和 include 路径。FFmpeg 等底层运行库保持动态链接。
 - 每个单测目标只直接链接 `edge_core`、`edge_common`、被测模块自身静态库和 `GTest::gtest_main`。被测模块可带入其自身依赖。例如 `test_detector` 不链接 FFmpeg、`edge_capture` 或主程序。
-- 交叉编译设置 `BUILD_TESTING=OFF`。真实主程序目标提供 `install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)` 供 Release 打包。当前根 CMake 文件只定义空工程和构建骨架。ARM64 工具链由后续 Issue #1 补齐。
+- 交叉编译设置 `BUILD_TESTING=OFF`。真实主程序目标提供 `install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)` 供 Release 打包。根 CMake 文件已启用 C++17，并由 Issue #1 落地 `edge_core`、`test_build` 和 aarch64 工具链；其余静态库与运行目标随对应里程碑加入。
 
 ## 8. Codex 与人工代码审查
 
