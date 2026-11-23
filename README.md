@@ -67,7 +67,7 @@ cmake -S . -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build build-arm64 --parallel 2
 ```
 
-CI 在 ubuntu-24.04 上执行同一组命令；实际工具链与依赖版本以工作流日志为准。测试不下载模型、不等待真实设备或推理。
+CI 基线（ubuntu-24.04）：CMake 3.31.6、Ninja 1.13.2、GCC 与 `aarch64-linux-gnu-g++` 13.3.0、GoogleTest 1.14.0；FFmpeg 库版本为 libavformat 60.16.100、libavcodec 60.31.102、libavutil 58.29.100、libswscale 7.5.100。测试不下载模型、不等待真实设备或推理。
 
 ## 仓库协作
 
