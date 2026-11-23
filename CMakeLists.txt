@@ -91,13 +91,27 @@ add_library(edge_streamer STATIC
 target_include_directories(edge_streamer PRIVATE ${STB_INCLUDE_DIR})
 target_link_libraries(edge_streamer PUBLIC edge_core edge_common)
 
+add_library(edge_transport STATIC
+  src/transport/jpeg_base64.cpp
+  src/transport/genai_worker.cpp
+)
+target_include_directories(edge_transport PRIVATE ${STB_INCLUDE_DIR})
+if(HTTPLIB_FOUND)
+  target_link_libraries(edge_transport PUBLIC edge_core edge_common PkgConfig::HTTPLIB)
+else()
+  target_include_directories(edge_transport PUBLIC ${HTTPLIB_INCLUDE_DIR})
+  target_link_libraries(edge_transport PUBLIC edge_core edge_common)
+endif()
+if(WIN32)
+  target_link_libraries(edge_transport PUBLIC ws2_32)
+endif()
+
 add_executable(edge-vision-analyzer src/main.cpp)
 target_link_libraries(edge-vision-analyzer PRIVATE
   edge_core edge_common edge_capture edge_api)
 install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)
 
-# Remaining libraries keep their own sources and direct dependencies:
-#   edge_transport -> edge_core, edge_common, cpp-httplib, stb
+# Remaining libraries keep their own sources and direct dependencies.
 # FFmpeg and other non-header-only third-party runtime libraries stay dynamic.
 
 if(BUILD_TESTING)
@@ -135,6 +149,12 @@ if(BUILD_TESTING)
     edge_core edge_common edge_streamer GTest::gtest_main)
   add_test(NAME test_streamer COMMAND test_streamer)
   set_tests_properties(test_streamer PROPERTIES TIMEOUT 5)
+
+  add_executable(test_transport tests/test_transport.cpp)
+  target_link_libraries(test_transport PRIVATE
+    edge_core edge_common edge_transport GTest::gtest_main)
+  add_test(NAME test_transport COMMAND test_transport)
+  set_tests_properties(test_transport PROPERTIES TIMEOUT 5)
 endif()
 
 # Cross builds use -DBUILD_TESTING=OFF; cmake/aarch64-toolchain.cmake selects
