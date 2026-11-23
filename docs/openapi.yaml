@@ -1,11 +1,9 @@
 openapi: 3.0.3
 info:
-  title: Edge Vision Analyzer 边缘端 API
+  title: Edge Vision Analyzer 边缘与云存储 API
   version: 0.1.0
-  description: 设计契约，全部端点待实现。初始化只发布文档，不代表服务已运行。版本代号为 v0.1-oculus / v0.2-discern / v0.3-nous / v1.0-vox。
-servers:
-- url: http://192.168.10.11:8081
-  description: 离线静态组网的魔百盒示例；部署时替换为实际地址。
+  description: PATCH-003 两服务设计契约，全部端点待实现。每个路径单独绑定 servers；边缘 :8081 仅实时控制与流媒体，cloud-storage :8090 保存历史事件与图片。llama-server
+    :8080 是外部依赖，不在本 OpenAPI paths 中。
 tags:
 - name: v0.1-oculus
   description: 采集与基础控制面，待实现。
@@ -19,7 +17,7 @@ paths:
   /api/v1/health:
     get:
       operationId: getHealth
-      summary: 存活、节点线程与上游健康状态
+      summary: 存活、节点线程与LLM/Storage上游健康状态
       tags:
       - v0.1-oculus
       x-implementation-status: planned
@@ -38,7 +36,10 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/Unavailable'
-      description: 探活仅检查已有节点状态和上游可达性，不触发真实多模态生成；上游不可达用 200/degraded 表示。
+      description: 检查已有节点状态及:8080/health和:8090/health连通状态，不触发真实推理或存储写入；边缘存活但已启用上游不可达时用200/degraded表示。
+    servers:
+    - url: http://192.168.10.11:8081
+      description: 魔百盒边缘实时控制与流媒体；此路径只属于边缘端。
   /api/v1/stats:
     get:
       operationId: getStats
@@ -61,6 +62,9 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/Unavailable'
+    servers:
+    - url: http://192.168.10.11:8081
+      description: 魔百盒边缘实时控制与流媒体；此路径只属于边缘端。
   /api/v1/config:
     get:
       operationId: getConfig
@@ -85,7 +89,7 @@ paths:
           $ref: '#/components/responses/Unavailable'
     patch:
       operationId: patchConfig
-      summary: 原子热更新四个允许字段
+      summary: 原子热更新检测/LLM/存储的五个允许字段
       tags:
       - v0.2-discern
       x-implementation-status: planned
@@ -117,7 +121,12 @@ paths:
               llm:
                 enabled: true
                 cooldown_sec: 15
-      description: 不持久化修改磁盘配置；不支持改源、模型、线程数、密钥或监听端口。整份请求先校验后原子发布；任一字段失败则全部不变。
+              storage:
+                enabled: true
+      description: v0.2-discern支持检测/LLM四项，v0.3-nous新增storage.enabled。不持久化修改磁盘配置；不支持改源、模型、线程数、密钥、端口、storage.endpoint或storage.timeout_sec。整份请求先校验后原子发布；任一字段失败则全部不变。
+    servers:
+    - url: http://192.168.10.11:8081
+      description: 魔百盒边缘实时控制与流媒体；此路径只属于边缘端。
   /api/v1/source/switch:
     post:
       operationId: switchSource
@@ -147,39 +156,9 @@ paths:
             schema:
               $ref: '#/components/schemas/SourceSwitchRequest'
       description: 成功后提交新输入源及 loop；打开或解码初始化失败返回 400，保留原源继续工作。
-  /api/v1/events:
-    get:
-      operationId: listEvents
-      summary: 查询内存环形事件表
-      tags:
-      - v0.3-nous
-      x-implementation-status: planned
-      responses:
-        '200':
-          description: 成功。
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EventsResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-      parameters:
-      - name: limit
-        in: query
-        required: false
-        description: 最多返回的事件条数；超出范围返回 400。
-        schema:
-          type: integer
-          minimum: 1
-          default: 20
-          maximum: 100
-      description: 最多保存 100 条；返回最近事件优先。total_in_buffer 是完整环形表当前条数，events 最多为 limit 条。
+    servers:
+    - url: http://192.168.10.11:8081
+      description: 魔百盒边缘实时控制与流媒体；此路径只属于边缘端。
   /api/v1/snapshot.jpg:
     get:
       operationId: getSnapshot
@@ -204,6 +183,9 @@ paths:
         '503':
           $ref: '#/components/responses/Unavailable'
       description: 尚无首帧返回 503；仅请求快照或有活跃流客户端时进行 JPEG 编码。
+    servers:
+    - url: http://192.168.10.11:8081
+      description: 魔百盒边缘实时控制与流媒体；此路径只属于边缘端。
   /api/v1/stream:
     get:
       operationId: getStream
@@ -234,6 +216,155 @@ paths:
         '503':
           $ref: '#/components/responses/Unavailable'
       description: HTTP 头发送前若无可用首帧可返回 503/JSON；开始流后不再插入 JSON 错误体，断线由客户端重连。慢客户端不得形成无界队列。
+    servers:
+    - url: http://192.168.10.11:8081
+      description: 魔百盒边缘实时控制与流媒体；此路径只属于边缘端。
+  /health:
+    servers:
+    - url: http://192.168.10.10:8090
+      description: 联想 PC cloud-storage；此路径只属于云存储进程。
+    get:
+      operationId: getStorageHealth
+      summary: 云存储数据库连接健康探针
+      tags:
+      - v0.3-nous
+      x-implementation-status: planned
+      responses:
+        '200':
+          description: 成功。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageHealth'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      description: 成功返回status=ok、db=connected；数据库未就绪返回503和统一Error。
+  /api/v1/events:
+    servers:
+    - url: http://192.168.10.10:8090
+      description: 联想 PC cloud-storage；此路径只属于云存储进程。
+    post:
+      operationId: createStoredEvent
+      summary: 保存干净抓拍与结构化事件
+      tags:
+      - v0.3-nous
+      x-implementation-status: planned
+      responses:
+        '201':
+          description: 图片与结构化元数据均写入成功后返回201 Created。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateEventResponse'
+              example:
+                status: created
+                event_id: evt_1795412000_1
+                image_url: /api/v1/images/2026-11-23/evt_1795412000_1.jpg
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventRequest'
+      description: 将image_base64解码为JPEG；按timestamp_ms的UTC日期写入storage/images/YYYY-MM-DD/<event_id>.jpg，SQLite保存相对路径及元数据（schema.sql）。不接收调用方文件路径；event_id限定安全字符且仅服务端生成文件名。重复event_id返回400/EVENT_EXISTS，不覆盖原留存；无效Base64/JPEG/字段返回400，文件/数据库写入失败返回500。
+    get:
+      operationId: listStoredEvents
+      summary: 分页查询历史结构化事件
+      tags:
+      - v0.3-nous
+      x-implementation-status: planned
+      responses:
+        '200':
+          description: 成功。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoredEventsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 20
+          maximum: 100
+        description: 每页条数1..100；非法值返回400。
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+        description: 跳过的记录数，必须为非负整数。
+      description: 按timestamp_ms DESC排序；同毫秒以event_id DESC稳定排序。total为数据库全部事件数，不受limit/offset影响。事件含相对image_url，不包含宿主机绝对路径。
+  /api/v1/images/{date}/{filename}:
+    servers:
+    - url: http://192.168.10.10:8090
+      description: 联想 PC cloud-storage；此路径只属于云存储进程。
+    get:
+      operationId: getStoredImage
+      summary: 读取历史事件干净JPEG抓拍
+      tags:
+      - v0.3-nous
+      x-implementation-status: planned
+      responses:
+        '200':
+          description: 留存的未经OSD绘制的原始干净JPEG。
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      parameters:
+      - name: date
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+          example: '2026-11-23'
+        description: timestamp_ms对应UTC日期YYYY-MM-DD，须为真实日历日期。
+      - name: filename
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9_-]+[.]jpg$
+          example: evt_1795412000_1.jpg
+        description: 只能是由合法event_id生成的<event_id>.jpg。
+      description: 仅在cloud-storage/storage/images根目录下解析日期与文件名；拒绝路径分隔符、..、编码绕过和越出根目录的解析结果。非法路径返回400，图片不存在返回404；仅返回image/jpeg，不返回磁盘路径。
 components:
   schemas:
     Error:
@@ -290,12 +421,13 @@ components:
           - unknown
         endpoint:
           type: string
-          description: 不含凭据的上游 health 地址。
+          description: 不含凭据的上游 health 地址；LLM为:8080/health，Storage为:8090/health。
           format: uri
           example: http://192.168.10.10:8080/health
       required:
       - status
       - endpoint
+      description: 单个上游的连通状态。LLM/Storage关闭时为disabled；连接异常不触发实际生成或写入。
     Health:
       type: object
       additionalProperties: false
@@ -319,12 +451,15 @@ components:
             $ref: '#/components/schemas/NodeHealth'
         llm:
           $ref: '#/components/schemas/UpstreamHealth'
+        storage:
+          $ref: '#/components/schemas/UpstreamHealth'
       required:
       - status
       - version
       - uptime_sec
       - nodes
       - llm
+      - storage
     Stats:
       type: object
       additionalProperties: false
@@ -367,7 +502,7 @@ components:
       - avg_llm_latency_ms
       - dropped_frames
       - rss_memory_mb
-      description: 累计丢帧与运行统计；尚未启用或尚无样本的阶段指标为 0。RSS 目标不超过 300MB；超限时仍如实报告实际测量值。
+      description: 累计丢帧与运行统计；尚未启用或尚无样本的阶段指标为 0。无状态边缘节点 RSS 目标严格小于 150MB；超限时仍如实报告实际测量值。
     InputConfig:
       type: object
       additionalProperties: false
@@ -454,14 +589,9 @@ components:
           type: number
           minimum: 0
           default: 5
-        max_events_in_memory:
-          type: integer
-          minimum: 1
-          default: 100
-          maximum: 100
       required:
       - end_grace_sec
-      - max_events_in_memory
+      description: 仅保留活动事件结束宽限时间；边缘不保存历史事件表。
     PublicLlmConfig:
       type: object
       additionalProperties: false
@@ -551,12 +681,15 @@ components:
           $ref: '#/components/schemas/PublicLlmConfig'
         streamer:
           $ref: '#/components/schemas/StreamerConfig'
+        storage:
+          $ref: '#/components/schemas/StorageConfig'
       required:
       - input
       - detector
       - event
       - llm
       - streamer
+      - storage
       description: 当前生效配置的公开响应视图，字段覆盖 config/config.json；llm.api_key 始终为 ***。
     DetectorPatch:
       type: object
@@ -589,7 +722,9 @@ components:
           $ref: '#/components/schemas/DetectorPatch'
         llm:
           $ref: '#/components/schemas/LlmPatch'
-      description: 仅允许这四个叶子字段。先验证整份请求，再原子发布新配置快照；无效字段、未知字段、空对象或越界值返回 400，不改变生效配置。
+        storage:
+          $ref: '#/components/schemas/StoragePatch'
+      description: 仅允许检测2项、LLM2项与storage.enabled共5个叶子字段。先验证整份请求，再原子发布新配置快照；无效字段、未知字段、空对象或越界值返回400，不改变生效配置。storage.endpoint/timeout_sec仅从静态配置读取。
       minProperties: 1
     SourceSwitchRequest:
       type: object
@@ -667,29 +802,55 @@ components:
       - w
       - h
       description: 检测框坐标相对画面归一化为 [0,1]，x/y 为左上角。
-    Event:
+    StorageConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+          default: true
+        endpoint:
+          type: string
+          description: 仅静态配置的事件接收完整URL。
+          format: uri
+          example: http://192.168.10.10:8090/api/v1/events
+        timeout_sec:
+          type: number
+          minimum: 0
+          default: 5
+          exclusiveMinimum: true
+      required:
+      - enabled
+      - endpoint
+      - timeout_sec
+    StoragePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+          description: v0.3-nous 起支持，仅切换存储投递开关。
+      minProperties: 1
+    CreateEventRequest:
       type: object
       additionalProperties: false
       properties:
         event_id:
           type: string
+          description: 仅允许字母、数字、下划线和连字符，由服务端据此生成文件名；不接受路径。
+          pattern: ^[A-Za-z0-9_-]+$
+          minLength: 1
           example: evt_1795412000_1
-        start_ts_ms:
+        frame_id:
+          type: integer
+          minimum: 0
+          format: int64
+          example: 88210
+        timestamp_ms:
           type: integer
           minimum: 0
           format: int64
           example: 1795412000123
-        end_ts_ms:
-          type: integer
-          minimum: 0
-          format: int64
-          example: 1795412008450
-        status:
-          type: string
-          description: 生命周期动作 new/update/end；资源状态为 active 或 ended。
-          enum:
-          - active
-          - ended
         top_label:
           type: string
           example: person
@@ -698,49 +859,163 @@ components:
           minimum: 0
           maximum: 1
           example: 0.87
-        boxes:
+        targets:
           type: array
           items:
             $ref: '#/components/schemas/TargetBox'
         llm_summary:
           type: string
-          description: 未完成、关闭或失败时可为空字符串。
+          description: LLM关闭、失败或超时时使用空字符串，存储仍继续。
           example: 一名男子正经过客厅走向门口。
         llm_latency_ms:
           type: number
           minimum: 0
           example: 5840.2
+        image_base64:
+          type: string
+          description: 同一份未经OSD绘制的干净JPEG的Base64原文，不带data:image/jpeg;base64,前缀；禁止传入图片路径。
+          format: byte
+          minLength: 1
+          example: <CLEAN_JPEG_BASE64>
       required:
       - event_id
-      - start_ts_ms
-      - end_ts_ms
-      - status
+      - frame_id
+      - timestamp_ms
       - top_label
       - top_score
-      - boxes
+      - targets
       - llm_summary
       - llm_latency_ms
-      description: active 事件的 end_ts_ms 持续更新到最近一次目标出现的时间。环形表容量为 100；LLM 结果异步回填。
-    EventsResponse:
+      - image_base64
+      description: 字段与PATCH-003一致。服务端解码干净JPEG后存盘，事件字段写入SQLite；image_rel_path以storage/为根，形式为images/YYYY-MM-DD/<event_id>.jpg。字段映射见cloud-storage/schema.sql。
+    CreateEventResponse:
       type: object
       additionalProperties: false
       properties:
-        total_in_buffer:
+        status:
+          type: string
+          enum:
+          - created
+        event_id:
+          type: string
+          description: 仅允许字母、数字、下划线和连字符，由服务端据此生成文件名；不接受路径。
+          pattern: ^[A-Za-z0-9_-]+$
+          minLength: 1
+          example: evt_1795412000_1
+        image_url:
+          type: string
+          description: 相对cloud-storage服务根地址的可访问资源URL，不返回宿主机绝对路径。
+          example: /api/v1/images/2026-11-23/evt_1795412000_1.jpg
+      required:
+      - status
+      - event_id
+      - image_url
+    StoredEvent:
+      type: object
+      additionalProperties: false
+      properties:
+        event_id:
+          type: string
+          description: 仅允许字母、数字、下划线和连字符，由服务端据此生成文件名；不接受路径。
+          pattern: ^[A-Za-z0-9_-]+$
+          minLength: 1
+          example: evt_1795412000_1
+        frame_id:
           type: integer
           minimum: 0
-          maximum: 100
+          format: int64
+          example: 88210
+        timestamp_ms:
+          type: integer
+          minimum: 0
+          format: int64
+          example: 1795412000123
+        top_label:
+          type: string
+          example: person
+        top_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.87
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/TargetBox'
+        llm_summary:
+          type: string
+          description: LLM关闭、失败或超时时使用空字符串，存储仍继续。
+          example: 一名男子正经过客厅走向门口。
+        llm_latency_ms:
+          type: number
+          minimum: 0
+          example: 5840.2
+        image_url:
+          type: string
+          description: 相对cloud-storage服务根地址的可访问资源URL，不返回宿主机绝对路径。
+          example: /api/v1/images/2026-11-23/evt_1795412000_1.jpg
+        created_at:
+          type: string
+          description: SQLite CURRENT_TIMESTAMP生成的UTC入库时间，格式YYYY-MM-DD HH:MM:SS。
+          example: '2026-11-23 05:33:20'
+      required:
+      - event_id
+      - frame_id
+      - timestamp_ms
+      - top_label
+      - top_score
+      - targets
+      - llm_summary
+      - llm_latency_ms
+      - image_url
+      - created_at
+      description: targets由SQLite targets_json解析，image_url由image_rel_path生成；不返回image_base64、image_rel_path或数据库路径。
+    StoredEventsResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        total:
+          type: integer
+          minimum: 0
+          format: int64
           example: 1
+        limit:
+          type: integer
+          minimum: 1
+          default: 20
+          maximum: 100
+        offset:
+          type: integer
+          minimum: 0
+          default: 0
         events:
           type: array
           maxItems: 100
           items:
-            $ref: '#/components/schemas/Event'
+            $ref: '#/components/schemas/StoredEvent'
       required:
-      - total_in_buffer
+      - total
+      - limit
+      - offset
       - events
+    StorageHealth:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+        db:
+          type: string
+          enum:
+          - connected
+      required:
+      - status
+      - db
   responses:
     BadRequest:
-      description: 请求参数、字段范围或源初始化错误；切源失败保留原源。
+      description: 请求字段、参数范围、Base64/JPEG、图片路径或源初始化错误；切源失败保留原源，重复事件ID返回EVENT_EXISTS。
       content:
         application/json:
           schema:
@@ -752,13 +1027,13 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     InternalError:
-      description: 边缘端内部错误。
+      description: 服务内部错误，例如文件或SQLite写入失败；采用统一Error且不暴露磁盘路径或凭据。
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     Unavailable:
-      description: 尚无首帧、节点未就绪或服务暂不可用。
+      description: 边缘首帧/节点或Storage数据库暂未就绪。
       content:
         application/json:
           schema:

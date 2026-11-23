@@ -33,7 +33,7 @@ Thumbs.db
 /assets/*
 !/assets/.gitkeep
 !/assets/README.md
-/failed_frames/
+/cloud-storage/storage/
 /snapshots/
 /recordings/
 /logs/
