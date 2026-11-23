@@ -1,23 +1,56 @@
 # 云存储模拟服务
 
-联想 PC 上的独立进程，在 `v0.3-nous` 阶段实现。它接收魔百盒异步投递的事件、检测结果、可选场景描述和未加 OSD 的 JPEG，并提供持久化查询。运行入口为 `server.py`，当前为空占位。Python 依赖见 [requirements.txt](requirements.txt)。
+联想 PC 上的独立进程，使用 FastAPI + SQLite 实现，默认监听 `0.0.0.0:8090`。它接收魔百盒异步投递的干净 JPEG、结构化事件与 Fluent Bit 日志，提供历史分页查询和图片读取。服务与魔百盒的 C++ 构建、ARM64 交叉编译完全解耦。接口语义见 [API 契约](../docs/api.md)，机器契约见 [OpenAPI](../docs/openapi.yaml)。
 
-## 启动（待实现）
+## 启动与运行
 
-完成 `v0.3-nous` 的 FastAPI 应用后，在联想 PC 的 Python 虚拟环境内，从仓库的 `cloud-storage/` 目录运行：
+需要 Python 3.10 或更高版本。为避免把虚拟环境放进仓库，可在家目录创建：
 
 ```sh
+cd cloud-storage
+python3 -m venv ~/.venvs/cloud-storage
+source ~/.venvs/cloud-storage/bin/activate
 python -m pip install -r requirements.txt
 python -m uvicorn server:app --host 0.0.0.0 --port 8090
 ```
 
-`:8090` 与 `llama-server :8080` 是各自独立的进程，可独立启停。通过联想 PC 实际局域网地址访问。服务完成后，`GET /health` 返回 SQLite 可连接状态。事件、图片与日志访问约定见 [API 契约](../docs/api.md)。该服务独立于魔百盒的 C++ 构建和部署。
+Windows 上激活命令为 `~/.venvs/cloud-storage/Scripts/activate`。`server:app` 需要在 `cloud-storage/` 目录内启动。服务启动时自动创建数据目录、依据 [schema.sql](schema.sql) 初始化 `events.db`，无需手工建表。
 
-## 文件与 SQLite 契约
+`:8090` 与 `llama-server :8080` 是各自独立的进程，可独立启停。启动后可探活：
 
-- `storage/images/YYYY-MM-DD/<event_id>.jpg` 存储 Base64 解码后未经 OSD 的 JPEG。`image_rel_path` 以 `storage/` 为根，格式为 `images/YYYY-MM-DD/<event_id>.jpg`。日期从入库前已确定的有效 `timestamp_ms` 按 UTC 取日。
-- 事件时间采用 [API 的 PATCH-009 时间兜底契约](../docs/api.md#52-保存事件与干净抓拍)：合法非负 `int64` 输入早于 `1735689600000`（2025-01-01T00:00:00Z）时，改用 PC 接收该请求时只取一次的当前 Unix 毫秒；晚于 `9999-12-31T23:59:59.999Z` 的合法整数也使用该兜底，范围内（含两端）保留原值。SQLite `timestamp_ms`、历史列表返回/排序和图片 UTC 日期统一使用这个有效时间。`0` 可兜底，缺失、负值及错误类型仍返回 400。此规则待实现，DDL 不变。
-- `storage/events.db` 的 `events` 表以 `event_id` 为主键，保存 `frame_id`、`timestamp_ms`、最高分标签和置信度、`targets_json`、可选 `llm_summary` 与 `llm_latency_ms`、`image_rel_path` 及自动生成的 `created_at`。`idx_events_timestamp` 支持按事件时间倒序查询。精确定义见 [schema.sql](schema.sql)。
-- 预计由 `server.py` 初始化目录和表。成功写入图片和对应数据库记录后才返回 201。历史查询返回 `image_url`，调用方用其读取 JPEG。
-- `storage/logs/YYYY-MM-DD.log` 按联想 PC 接收时的 UTC 日期追加日志，每条是独立的 JSON 行。`POST /api/v1/logs` 接收 Fluent Bit 批次，`GET /api/v1/logs` 返回所选日期的最近若干行。
-- `storage/` 由服务在运行时创建，整目录已被 Git 忽略。抓拍、数据库和日志文件保留在联想 PC。
+```sh
+curl http://127.0.0.1:8090/health
+# {"status":"ok","db":"connected"}
+```
+
+默认数据根目录为 `cloud-storage/storage/`，可用环境变量 `CLOUD_STORAGE_DIR` 指向其他目录。所有图片、SQLite 数据库和日志都写入该目录，整目录已被 Git 忽略。
+
+## 已实现端点
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| GET | `/health` | SQLite 连接健康探针；未就绪返回 503 统一 Error。 |
+| POST | `/api/v1/events` | 校验字段与 JPEG，按有效 `timestamp_ms` 的 UTC 日期写入 `images/YYYY-MM-DD/<event_id>.jpg` 和 SQLite；成功返回 201。重复 `event_id` 返回 400 `EVENT_EXISTS`，不覆盖原记录。 |
+| GET | `/api/v1/events?limit=20&offset=0` | 按 `timestamp_ms DESC`、同毫秒 `event_id DESC` 分页；`limit` 范围 1..100，`offset` 非负。 |
+| GET | `/api/v1/images/{date}/{filename}` | 返回 `image/jpeg` 干净抓拍；拒绝路径分隔符、`..` 与越出根目录的路径。 |
+| POST | `/api/v1/logs` | 接收 JSON 对象数组，按 PC 接收时的 UTC 日期逐条追加到 `logs/YYYY-MM-DD.log`；成功返回 204。 |
+| GET | `/api/v1/logs?date=YYYY-MM-DD&tail=100` | 以 `application/x-ndjson` 返回指定日期最近 `tail` 行（保持写入顺序）；`tail` 范围 1..1000。 |
+
+统一错误体为 `{"error": {"code": "...", "message": "..."}}`。服务端时间兜底、字段范围和错误语义均以 API 与 OpenAPI 契约为准。
+
+## 数据布局
+
+- `storage/images/YYYY-MM-DD/<event_id>.jpg`：Base64 解码后的干净 JPEG。
+- `storage/events.db`：`events` 表与 `idx_events_timestamp` 索引，结构以 [schema.sql](schema.sql) 为唯一依据；`image_rel_path` 以 `storage/` 为根，如 `images/2026-11-23/evt_1795412000_1.jpg`。
+- `storage/logs/YYYY-MM-DD.log`：每行一条紧凑 JSON 日志对象，不写入 SQLite。
+
+## 离线测试
+
+测试使用 FastAPI `TestClient` 与临时目录，不访问网络、不依赖真实图片或运行数据库：
+
+```sh
+python -m pip install pytest httpx
+python -m pytest -q cloud-storage
+```
+
+也可在 `cloud-storage/` 目录内执行 `python -m pytest -q`。`requirements.txt` 只锁定服务运行依赖，测试所需的 `pytest` 与 `httpx` 需另行安装。
