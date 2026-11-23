@@ -53,6 +53,22 @@ void validate(const Config& config) {
   if (config.detector.num_threads <= 0) {
     throw std::runtime_error("detector.num_threads must be positive");
   }
+  if (config.detector.quantization != "auto" &&
+      config.detector.quantization != "fp32" &&
+      config.detector.quantization != "fp16" &&
+      config.detector.quantization != "int8") {
+    throw std::runtime_error("detector.quantization must be auto, fp32, fp16 or int8");
+  }
+  for (const auto& entry : config.detector.model_candidates) {
+    if (entry.first != "fp32" && entry.first != "fp16" && entry.first != "int8") {
+      throw std::runtime_error(
+          "detector.model_candidates keys must be fp32, fp16 or int8");
+    }
+    if (entry.second.param.empty() != entry.second.bin.empty()) {
+      throw std::runtime_error("detector.model_candidates." + entry.first +
+                               " param and bin must be set together");
+    }
+  }
   if (config.event.end_grace_sec < 0) {
     throw std::runtime_error("event.end_grace_sec must not be negative");
   }
@@ -106,6 +122,11 @@ void from_json(const nlohmann::json& json, InputConfig& config) {
   config.dump_interval_sec = json.at("dump_interval_sec").get<int>();
 }
 
+void from_json(const nlohmann::json& json, ModelCandidate& config) {
+  config.param = json.at("param").get<std::string>();
+  config.bin = json.at("bin").get<std::string>();
+}
+
 void from_json(const nlohmann::json& json, DetectorConfig& config) {
   config.motion_mad_threshold = json.at("motion_mad_threshold").get<double>();
   config.model_param = json.at("model_param").get<std::string>();
@@ -114,6 +135,13 @@ void from_json(const nlohmann::json& json, DetectorConfig& config) {
   config.conf_threshold = json.at("conf_threshold").get<double>();
   config.num_threads = json.at("num_threads").get<int>();
   config.target_labels = json.at("target_labels").get<std::vector<std::string>>();
+  config.quantization = json.value("quantization", std::string("auto"));
+  config.model_candidates.clear();
+  const auto candidates = json.find("model_candidates");
+  if (candidates != json.end() && !candidates->is_null()) {
+    config.model_candidates =
+        candidates->get<std::map<std::string, ModelCandidate>>();
+  }
 }
 
 void from_json(const nlohmann::json& json, EventConfig& config) {
@@ -168,6 +196,10 @@ void to_json(nlohmann::json& json, const InputConfig& config) {
                         {"dump_interval_sec", config.dump_interval_sec}};
 }
 
+void to_json(nlohmann::json& json, const ModelCandidate& config) {
+  json = nlohmann::json{{"param", config.param}, {"bin", config.bin}};
+}
+
 void to_json(nlohmann::json& json, const DetectorConfig& config) {
   json = nlohmann::json{{"motion_mad_threshold", config.motion_mad_threshold},
                         {"model_param", config.model_param},
@@ -175,7 +207,11 @@ void to_json(nlohmann::json& json, const DetectorConfig& config) {
                         {"input_size", config.input_size},
                         {"conf_threshold", config.conf_threshold},
                         {"num_threads", config.num_threads},
-                        {"target_labels", config.target_labels}};
+                        {"target_labels", config.target_labels},
+                        {"quantization", config.quantization}};
+  if (!config.model_candidates.empty()) {
+    json["model_candidates"] = config.model_candidates;
+  }
 }
 
 void to_json(nlohmann::json& json, const EventConfig& config) {

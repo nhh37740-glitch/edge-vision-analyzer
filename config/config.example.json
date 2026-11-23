@@ -11,6 +11,21 @@
     "motion_mad_threshold": 8.0,
     "model_param": "models/yolo-fastest-v2.param",
     "model_bin": "models/yolo-fastest-v2.bin",
+    "quantization": "auto",
+    "model_candidates": {
+      "fp32": {
+        "param": "models/yolo-fastest-v2.param",
+        "bin": "models/yolo-fastest-v2.bin"
+      },
+      "fp16": {
+        "param": "models/yolo-fastest-v2-fp16.param",
+        "bin": "models/yolo-fastest-v2-fp16.bin"
+      },
+      "int8": {
+        "param": "models/yolo-fastest-v2-int8.param",
+        "bin": "models/yolo-fastest-v2-int8.bin"
+      }
+    },
     "input_size": 320,
     "conf_threshold": 0.5,
     "num_threads": 2,

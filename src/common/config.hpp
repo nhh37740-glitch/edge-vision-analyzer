@@ -1,7 +1,7 @@
 #pragma once
 
-#include <nlohmann/json.hpp>
 #include <map>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
@@ -16,6 +16,11 @@ struct InputConfig {
   int dump_interval_sec = 2;
 };
 
+struct ModelCandidate {
+  std::string param;
+  std::string bin;
+};
+
 struct DetectorConfig {
   double motion_mad_threshold = 8.0;
   std::string model_param;
@@ -24,6 +29,11 @@ struct DetectorConfig {
   double conf_threshold = 0.5;
   int num_threads = 2;
   std::vector<std::string> target_labels;
+  // "auto" picks a candidate from model_candidates by device resources;
+  // "fp32", "fp16" and "int8" request one quantization explicitly.
+  std::string quantization = "auto";
+  // Optional keys fp32/fp16/int8. Missing or incomplete entries are ignored.
+  std::map<std::string, ModelCandidate> model_candidates;
 };
 
 struct EventConfig {
@@ -73,6 +83,7 @@ struct Config {
 void validate(const Config& config);
 
 void from_json(const nlohmann::json& json, InputConfig& config);
+void from_json(const nlohmann::json& json, ModelCandidate& config);
 void from_json(const nlohmann::json& json, DetectorConfig& config);
 void from_json(const nlohmann::json& json, EventConfig& config);
 void from_json(const nlohmann::json& json, LlmConfig& config);
@@ -81,6 +92,7 @@ void from_json(const nlohmann::json& json, StreamerConfig& config);
 void from_json(const nlohmann::json& json, Config& config);
 
 void to_json(nlohmann::json& json, const InputConfig& config);
+void to_json(nlohmann::json& json, const ModelCandidate& config);
 void to_json(nlohmann::json& json, const DetectorConfig& config);
 void to_json(nlohmann::json& json, const EventConfig& config);
 void to_json(nlohmann::json& json, const LlmConfig& config);

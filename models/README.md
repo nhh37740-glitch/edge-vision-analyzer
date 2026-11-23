@@ -7,12 +7,29 @@
 ```json
 "model_param": "models/yolo-fastest-v2.param",
 "model_bin": "models/yolo-fastest-v2.bin",
+"quantization": "auto",
+"model_candidates": {
+  "fp32": {"param": "models/yolo-fastest-v2.param", "bin": "models/yolo-fastest-v2.bin"},
+  "fp16": {"param": "models/yolo-fastest-v2-fp16.param", "bin": "models/yolo-fastest-v2-fp16.bin"},
+  "int8": {"param": "models/yolo-fastest-v2-int8.param", "bin": "models/yolo-fastest-v2-int8.bin"}
+},
 "input_size": 320,
 "conf_threshold": 0.5,
 "target_labels": ["person"]
 ```
 
 路径相对进程工作目录。部署时把权重放在仓库根目录的 `models/`，或修改本地 `config/config.local.json` 指向实际位置。
+
+## 量化模型与自动选型
+
+`detector.quantization` 取 `auto`（默认）、`fp32`、`fp16` 或 `int8`。`model_candidates` 的键只能是这三种精度，每项的 `param` 与 `bin` 必须同时给出。
+
+- `auto`：可用内存不小于 256 MB、设备支持 int8（aarch64 dotprod/asimddp）且存在 int8 候选时选 int8；否则设备支持 fp16 且内存不小于 128 MB 时选 fp16；否则使用 `model_param` / `model_bin` 基础模型。
+- 显式指定精度：该档候选的 param 与 bin 非空则加载它；缺失时回退基础模型。
+- 候选文件不存在或被 ncnn 拒绝时，节点回退基础模型并在 `effective_quantization()` 报告实际档位。
+- fp16 档启用 ncnn 的 fp16 算术、打包与存储；fp32/int8 档关闭这些 fp16 算术选项，int8 由 ncnn 的 int8 推理开关控制。
+
+候选权重同样不入库。`config.example.json` 中的 fp16/int8 路径只是示例，实际部署前需自行转换并放置，否则节点会回退到基础模型。
 
 ## YOLO-Fastest-v2（默认）
 
