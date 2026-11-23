@@ -6,7 +6,7 @@
 
 ## 1. 当前执行边界与后续启动条件
 
-当前已实现 C++17 构建骨架、aarch64 工具链、`src/core`／`src/common` 的节点框架、配置与指标，`src/capture` 的 FFmpeg 拉流、RGB24 解码、截帧和 remux 录片，以及 `src/api` 的 health、stats、config 读取和 source-switch 控制面；`test_core`、`test_capture` 与 `test_api` 提供离线覆盖。检测、推理、存储、推流与部署仍待实现。FastAPI `server.py` 在 `v0.3-nous` 实现。所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
+当前已实现 C++17 构建骨架、aarch64 工具链、`src/core`／`src/common` 的节点框架、配置与指标，`src/capture` 的 FFmpeg 拉流、RGB24 解码、截帧和仅视频 remux 录片，以及 `src/api` 的 health、stats、config 读取和 source-switch 控制面；`test_core`、`test_capture` 与 `test_api` 提供离线覆盖。检测、推理、存储、推流与部署仍待实现。FastAPI `server.py` 在 `v0.3-nous` 实现。所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
 当前仓库包含协作模板、GitHub Actions、根 [CMakeLists.txt](../CMakeLists.txt) 的 C++17 构建骨架和 `cmake/aarch64-toolchain.cmake`；Issue #1 已使 `edge_core` 与 `test_build` 可构建，Issue #2 增加 `edge_common` 与 `test_core`，Issue #3 增加 `edge_capture`，Issue #4 增加 `edge_api` 与运行入口，Issue #5 增加 `test_capture` 与 `test_api` 离线用例；其余目标随 `v0.1-oculus` 的各项 Issue 加入。FastAPI `server.py` 在 `v0.3-nous` 实现。接手 Agent 在收到开发指令后实施业务，所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
@@ -22,7 +22,7 @@
 
 1. 手机开启 IP Webcam，提供 HTTP MJPEG 或 RTSP；魔百盒经有线局域网拉流。
 2. 后续获准实现并部署 `v0.1-oculus` ARM64 产物后，在魔百盒上验证稳定截帧并保存 `.jpg`。
-3. 通过规划中的 `--record-clip assets/demo_clip.mp4 --duration 20` 录制 15～30 秒缓存视频，内容同时包含静止背景与人物活动；直接 remux，不重新编码。
+3. 通过规划中的 `--record-clip assets/demo_clip.mp4 --duration 20` 录制 15～30 秒缓存视频，内容同时包含静止背景与人物活动；直接 remux，不重新编码，输出仅保留视频轨。
 4. 在线切换到该本地视频并稳定循环运行，作为阶段 A 的结束条件。上述截帧与录片只在用户显式执行阶段 A 时保留，不扩展为常态历史留存或失败补偿。真实手机地址、素材和运行结果由现场验收记录确认，本轮不连接摄像头或录片。
 
 ### 阶段 B：无人值守持续开发
@@ -52,7 +52,7 @@
 
 ```text
 手机 IP Webcam / 本地 demo_clip.mp4
-    │ 单次拉流；阶段 A 可同步 remux 录片
+    │ 单次拉流；阶段 A 可同步仅视频 remux 录片
     ▼
 CaptureNode ──▶ MotionNode ──▶ NcnnDetectorNode ──▶ EventTrackerNode
     FFmpeg       64×48 MAD     仅有运动时检测             │ 仅活跃事件瞬时状态
@@ -236,14 +236,14 @@ private:
 - 补齐 [CMakeLists.txt](../CMakeLists.txt) 的实际静态库、运行与测试目标；`cmake/aarch64-toolchain.cmake` 已在 Issue #1 创建，后续 Issue 继续加入本里程碑的模块目标。支持 x86_64 本机测试和 aarch64 交叉编译。依赖矩阵见 [架构构建契约](architecture.md)。
 - `src/core/frame_meta.hpp`、`bounded_queue.hpp`、`base_node.hpp`、`base_node.cpp`：统一元数据、丢旧帧队列和节点基类。
 - `src/common/config.hpp` / `.cpp`、`metrics.hpp` / `.cpp`：配置加载、原子热更新基础与 FPS／耗时／`/proc/self/statm` RSS 统计。`soc_temp_c` 仅用于压测观测。
-- `src/capture/capture_node.hpp` / `.cpp`、`frame_dumper.hpp` / `.cpp`：FFmpeg 拉流、本地循环、remux 录片与按间隔保存 JPEG。
+- `src/capture/capture_node.hpp` / `.cpp`、`frame_dumper.hpp` / `.cpp`：FFmpeg 拉流、本地循环、仅视频 remux 录片与按间隔保存 JPEG。
 - 后续创建 `src/main.cpp` 的最小采集/控制面运行入口与录片命令行装配，使阶段 A 有可运行产物；`v1.0-vox` 再完善完整流水线组装与交付。
 - `src/api/api_server.hpp` / `.cpp`：挂载 `GET /api/v1/health`、`GET /api/v1/stats`、`GET /api/v1/config`、`POST /api/v1/source/switch`。
 - `tests/test_capture.cpp`、`tests/test_api.cpp` 与极小离线 fixture；后续编译、交叉编译和阶段 A 的实际验收记录。
 
 **内部架构：**
 
-`CaptureNode` 对标 FFmpeg `demux_decode.c`：`avformat_open_input` → `avcodec_send_packet` / `avcodec_receive_frame` → `sws_scale` 转 `640×480 RGB24` → `emit(meta)`。单次拉流供后续节点使用；如开启 `--record-clip <path> --duration <sec>`，在解码前把原始 `AVPacket` remux 写入目标 MP4，避免重编码 CPU 开销。
+`CaptureNode` 对标 FFmpeg `demux_decode.c`：`avformat_open_input` → `avcodec_send_packet` / `avcodec_receive_frame` → `sws_scale` 转 `640×480 RGB24` → `emit(meta)`。单次拉流供后续节点使用；如开启 `--record-clip <path> --duration <sec>`，在解码前把原始视频 `AVPacket` remux 写入目标 MP4；`RemuxRecorder` 只创建视频输出流，因此录片仅保留视频轨，避免重编码 CPU 开销。
 
 本地文件 `loop == true` 且遇到 `AVERROR_EOF` 时执行 `av_seek_frame` + `avcodec_flush_buffers`；按 `target_fps` 用 `steady_clock` 节流。网络流断线后间隔 2 秒重连。切源失败必须保留原源，返回接口规定的 400 错误；不能先销毁旧源再报告失败。
 

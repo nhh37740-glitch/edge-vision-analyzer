@@ -2,7 +2,6 @@
 
 #include <chrono>
 #include <string>
-#include <vector>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -10,7 +9,8 @@ extern "C" {
 
 namespace edge {
 
-// Remuxes the input's original packets into a container without re-encoding.
+// Remuxes the input's original video packets into a container without
+// re-encoding. Recordings keep only the video track.
 // It is used only by the explicit --record-clip path.
 class RemuxRecorder {
  public:
@@ -29,8 +29,9 @@ class RemuxRecorder {
 
  private:
   AVFormatContext* output_ = nullptr;
-  std::vector<int> stream_map_;
-  std::vector<AVRational> input_time_bases_;
+  int input_video_stream_ = -1;
+  int output_video_stream_ = -1;
+  AVRational input_time_base_{1, 1};
   std::chrono::steady_clock::time_point started_{};
   int duration_sec_ = 0;
   bool header_written_ = false;

@@ -22,23 +22,29 @@ bool RemuxRecorder::open(const std::string& path, AVFormatContext* input, int du
     return false;
   }
 
-  for (unsigned int index = 0; index < input->nb_streams; ++index) {
-    AVStream* output_stream = avformat_new_stream(output_, nullptr);
-    if (output_stream == nullptr) {
-      error = "cannot allocate output stream";
-      close();
-      return false;
-    }
-    if (avcodec_parameters_copy(output_stream->codecpar, input->streams[index]->codecpar) < 0) {
-      error = "cannot copy codec parameters";
-      close();
-      return false;
-    }
-    output_stream->codecpar->codec_tag = 0;
-    output_stream->time_base = input->streams[index]->time_base;
-    stream_map_.push_back(output_stream->index);
-    input_time_bases_.push_back(input->streams[index]->time_base);
+  const int video_index = av_find_best_stream(input, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+  if (video_index < 0) {
+    error = "no video stream to remux";
+    close();
+    return false;
   }
+
+  AVStream* output_stream = avformat_new_stream(output_, nullptr);
+  if (output_stream == nullptr) {
+    error = "cannot allocate output stream";
+    close();
+    return false;
+  }
+  if (avcodec_parameters_copy(output_stream->codecpar, input->streams[video_index]->codecpar) < 0) {
+    error = "cannot copy codec parameters";
+    close();
+    return false;
+  }
+  output_stream->codecpar->codec_tag = 0;
+  input_time_base_ = input->streams[video_index]->time_base;
+  output_stream->time_base = input_time_base_;
+  input_video_stream_ = video_index;
+  output_video_stream_ = output_stream->index;
 
   if (avio_open(&output_->pb, path.c_str(), AVIO_FLAG_WRITE) < 0 || output_->pb == nullptr) {
     error = "cannot open output file " + path;
@@ -62,8 +68,7 @@ void RemuxRecorder::write_packet(const AVPacket* packet) {
   if (!header_written_ || finished_ || output_ == nullptr || packet == nullptr) {
     return;
   }
-  if (packet->stream_index < 0 ||
-      static_cast<std::size_t>(packet->stream_index) >= stream_map_.size()) {
+  if (packet->stream_index != input_video_stream_) {
     return;
   }
 
@@ -71,8 +76,8 @@ void RemuxRecorder::write_packet(const AVPacket* packet) {
   if (copy == nullptr) {
     return;
   }
-  AVStream* output_stream = output_->streams[stream_map_[packet->stream_index]];
-  av_packet_rescale_ts(copy, input_time_bases_[packet->stream_index], output_stream->time_base);
+  AVStream* output_stream = output_->streams[output_video_stream_];
+  av_packet_rescale_ts(copy, input_time_base_, output_stream->time_base);
   copy->pos = -1;
   const int result = av_interleaved_write_frame(output_, copy);
   av_packet_free(&copy);
@@ -102,8 +107,8 @@ void RemuxRecorder::close() {
   }
   avformat_free_context(output_);
   output_ = nullptr;
-  stream_map_.clear();
-  input_time_bases_.clear();
+  input_video_stream_ = -1;
+  output_video_stream_ = -1;
 }
 
 }  // namespace edge
