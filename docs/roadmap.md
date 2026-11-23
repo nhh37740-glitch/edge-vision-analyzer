@@ -2,7 +2,7 @@
 
 状态：有效设计；全部业务能力待实现。更新日期：2026-11-23（北京时间）。
 
-本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-008。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.example.json](../config/config.example.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
+本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-009。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.example.json](../config/config.example.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
 
 ## 1. 当前执行边界与后续启动条件
 
@@ -122,7 +122,7 @@ edge-vision-analyzer/
 ├── assets/                            # 现场视频大文件不入库
 ├── scripts/
 │   ├── deploy_to_box.sh
-│   └── start_llama_server.sh
+│   └── start_pc_services.sh
 ├── deploy/
 │   ├── edge-vision.service
 │   ├── journald-edge.conf
@@ -232,7 +232,7 @@ private:
 
 - 补齐 [CMakeLists.txt](../CMakeLists.txt) 的实际静态库、运行与测试目标，并创建 `cmake/aarch64-toolchain.cmake`，支持 x86_64 本机测试和 aarch64 交叉编译。依赖矩阵见 [架构构建契约](architecture.md)。
 - `src/core/frame_meta.hpp`、`bounded_queue.hpp`、`base_node.hpp`、`base_node.cpp`：统一元数据、丢旧帧队列和节点基类。
-- `src/common/config.hpp` / `.cpp`、`metrics.hpp` / `.cpp`：配置加载、原子热更新基础与 FPS／耗时／`/proc/self/statm` RSS 统计。
+- `src/common/config.hpp` / `.cpp`、`metrics.hpp` / `.cpp`：配置加载、原子热更新基础与 FPS／耗时／`/proc/self/statm` RSS 统计。`soc_temp_c` 仅用于压测观测。
 - `src/capture/capture_node.hpp` / `.cpp`、`frame_dumper.hpp` / `.cpp`：FFmpeg 拉流、本地循环、remux 录片与按间隔保存 JPEG。
 - 后续创建 `src/main.cpp` 的最小采集/控制面运行入口与录片命令行装配，使阶段 A 有可运行产物；`v1.0-vox` 再完善完整流水线组装与交付。
 - `src/api/api_server.hpp` / `.cpp`：挂载 `GET /api/v1/health`、`GET /api/v1/stats`、`GET /api/v1/config`、`POST /api/v1/source/switch`。
@@ -291,7 +291,7 @@ private:
 
 **全部交付件：**
 
-- `scripts/start_llama_server.sh`：联想 PC 启动多模态 `llama-server` 的标准脚本。
+- 实现 [start_pc_services.sh](../scripts/start_pc_services.sh)，在联想 PC 启动并分别探活 `llama-server :8080` 与 `cloud-storage :8090`。脚本最多 50 行，本轮已提交注释占位。
 - `src/transport/event_tracker_node.hpp` / `.cpp`：仅当前活跃事件的瞬时聚合状态和触发节流。
 - `src/transport/jpeg_base64.hpp` / `.cpp`：干净 JPEG 一次内存编码与 Base64 复用。
 - `src/transport/genai_worker.hpp` / `.cpp`：单后台线程、队列 1，顺序执行可选 LLM 和可选 Storage HTTP。
@@ -322,7 +322,7 @@ private:
 
 **PC 存储／查询内部契约：**
 
-FastAPI `POST /api/v1/events` 解码干净 JPEG，把图片写入 `cloud-storage/storage/images/YYYY-MM-DD/<event_id>.jpg`，并将元数据写入 `cloud-storage/storage/events.db`，成功返回 `201 Created`。SQLite 表和时间索引以 [schema.sql](../cloud-storage/schema.sql) 为唯一结构依据；`targets` 序列化为 `targets_json`，持久化 `image_rel_path`，查询响应提供 `image_url`。日期目录时区、分页排序、重复 ID 与错误响应以 [api.md](api.md) / [OpenAPI](openapi.yaml) 为准。
+FastAPI `POST /api/v1/events` 解码干净 JPEG，把图片写入 `cloud-storage/storage/images/YYYY-MM-DD/<event_id>.jpg`，并将元数据写入 `cloud-storage/storage/events.db`，按 API 契约处理异常设备时间，以生效时间生成图片日期目录并写入 SQLite，成功返回 `201 Created`。SQLite 表和时间索引以 [schema.sql](../cloud-storage/schema.sql) 为唯一结构依据；`targets` 序列化为 `targets_json`，持久化 `image_rel_path`，查询响应提供 `image_url`。日期目录时区、分页排序、重复 ID 与错误响应以 [api.md](api.md) / [OpenAPI](openapi.yaml) 为准。
 
 `GET /api/v1/events?limit=20&offset=0` 分页查询 PC 已接收的历史；`GET /api/v1/images/{date}/{filename}` 返回对应干净图片；`GET /health` 返回服务／数据库状态。运行数据目录整体忽略，不入库；云端失败或网络离线可能导致事件丢失，不承诺离线补发或必达。截图、数据库和历史 API 仅归 PC 存储业务，不借用边缘 C++ 模块实现。
 
@@ -354,7 +354,7 @@ FastAPI `POST /api/v1/events` 解码干净 JPEG，把图片写入 `cloud-storage
 - `src/streamer/stream_out_node.hpp` / `.cpp`。
 - `src/streamer/rtsp_pusher.hpp` / `.cpp`。
 - `src/main.cpp`：声明式 `BaseNode::attach_next()` 组装与 `SIGINT` / `SIGTERM` 优雅退出。
-- 在目标机验证已有 `deploy/edge-vision.service`、`deploy/journald-edge.conf` 和 `deploy/fluent-bit.conf`，并完成 `scripts/deploy_to_box.sh`。
+- 在目标机验证已有 `deploy/edge-vision.service`、`deploy/journald-edge.conf` 和 `deploy/fluent-bit.conf`，并实现 [deploy_to_box.sh](../scripts/deploy_to_box.sh)，统一对时、打印环境、传包、重启和验活，最多 50 行。阶段 A 真机验收可按相同流程手动执行。
 - `ApiServer` 补充 `GET /api/v1/snapshot.jpg` 和 `GET /api/v1/stream`。
 - `tests/test_streamer.cpp`，3～5 个离线用例。
 - 完善 `README.md`：架构图、部署步骤、实测性能指标表；发布／部署／现场验收结果分别记录。
