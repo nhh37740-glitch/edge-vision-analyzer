@@ -79,6 +79,18 @@ if(BUILD_TESTING)
   target_compile_definitions(test_core PRIVATE
     EDGE_CONFIG_EXAMPLE="${CMAKE_CURRENT_SOURCE_DIR}/config/config.example.json")
   add_test(NAME test_core COMMAND test_core)
+
+  add_executable(test_capture tests/test_capture.cpp)
+  target_link_libraries(test_capture PRIVATE
+    edge_core edge_common edge_capture GTest::gtest_main)
+  add_test(NAME test_capture COMMAND test_capture)
+  set_tests_properties(test_capture PROPERTIES TIMEOUT 5)
+
+  add_executable(test_api tests/test_api.cpp)
+  target_link_libraries(test_api PRIVATE
+    edge_core edge_common edge_api GTest::gtest_main)
+  add_test(NAME test_api COMMAND test_api)
+  set_tests_properties(test_api PROPERTIES TIMEOUT 5)
 endif()
 
 # The sole executable and its install rule are added when src/main.cpp lands.
