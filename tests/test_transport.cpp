@@ -197,6 +197,36 @@ TEST(Transport, BothSwitchesOffSkipsEncodingAndHttp) {
   worker.stop();
 }
 
+TEST(Transport, HotEnablingLlmAfterStartSendsRequest) {
+  MockServer mock;
+  ASSERT_GT(mock.port(), 0);
+  std::atomic<int> requests{0};
+  mock.server().Post("/v1/chat/completions",
+                     [&](const httplib::Request&, httplib::Response& response) {
+                       requests.fetch_add(1);
+                       response.set_content(
+                           R"({"choices":[{"message":{"content":"已启用。"}}]})",
+                           "application/json");
+                     });
+  mock.start();
+
+  // Mirrors main.cpp: the worker is created and started even when both
+  // switches are off, so a later PATCH can enable delivery without a restart.
+  GenAiWorker worker(llm_config(mock.port(), false), storage_config(mock.port(), false));
+  worker.start();
+  worker.set_llm_enabled(true);
+
+  ASSERT_TRUE(worker.submit(make_task(make_frame(4, 7), "evt_hot_llm")));
+  ASSERT_TRUE(wait_until([&] {
+    return worker.stats().processed == 1 && requests.load() == 1;
+  }));
+  const edge::GenAiStats stats = worker.stats();
+  EXPECT_EQ(stats.llm_requests, 1u);
+  EXPECT_EQ(stats.llm_failures, 0u);
+  EXPECT_EQ(worker.last_result().llm_summary, "已启用。");
+  worker.stop();
+}
+
 TEST(Transport, LlmOnlySendsOpenAiVisionRequestAndParsesSummary) {
   MockServer mock;
   ASSERT_GT(mock.port(), 0);

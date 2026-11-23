@@ -1,6 +1,6 @@
 # Edge Vision Analyzer — 双服务 API 契约
 
-状态：有效设计契约；`v0.1-oculus` 的 health、stats、config 读取与 source-switch，`v1.0-vox` 的 snapshot 与 stream，以及 `v0.3-nous` 的云存储 health/events/images/logs 均已实现；仅 PATCH config 待实现。边缘端点已在本机回环与离线用例验证，云存储由离线 pytest 覆盖，真机验收待执行。维护责任：项目维护 Agent。更新日期：2026-11-24（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
+状态：有效设计契约；`v0.1-oculus` 的 health、stats、config 读取与 source-switch，`v0.2-discern` 的 PATCH config 原子热更新，`v1.0-vox` 的 snapshot 与 stream，以及 `v0.3-nous` 的云存储 health/events/images/logs 均已实现。边缘端点已在本机回环与离线用例验证，云存储由离线 pytest 覆盖，真机验收待执行。维护责任：项目维护 Agent。更新日期：2026-11-24（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
 
 本轮不宣称真机验收；已实现范围仅指本机回环与离线用例验证。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
 
@@ -127,7 +127,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 }
 ```
 
-`PATCH :8081/api/v1/config` 尚未实现；以下为规划契约，使用嵌套结构：
+`PATCH :8081/api/v1/config` 已实现，使用嵌套结构：
 
 ```json
 {
@@ -137,9 +137,9 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 }
 ```
 
-仅允许五个叶子字段：`detector.motion_mad_threshold`（0..255）、`detector.conf_threshold`（0..1）、`llm.enabled`（布尔）、`llm.cooldown_sec`（非负秒数）、`storage.enabled`（布尔）。原四项规划在 `v0.2-discern` 支持，存储开关规划于 `v0.3-nous` 接入。可只提交一个字段；拒绝空对象、未知字段、错误类型及范围错误，返回 400。
+仅允许五个叶子字段：`detector.motion_mad_threshold`（0..255）、`detector.conf_threshold`（0..1）、`llm.enabled`（布尔）、`llm.cooldown_sec`（非负整数秒数）、`storage.enabled`（布尔）。原四项在 `v0.2-discern` 支持，存储开关在 `v0.3-nous` 接入。可只提交一个字段；拒绝空对象、未知字段、错误类型及范围错误，统一返回 400/`INVALID_PARAMETER`，错误消息不包含服务器路径。
 
-先验证整份请求，再无锁发布不可变配置快照；任一字段失败则全部不变。成功返回 200 和完整生效配置，不持久化到磁盘。视频源走专用切源接口；模型、线程数、端口以及 `storage.endpoint/storage.timeout_sec` 仅静态配置，不能热更。
+先整份校验请求，再在配置锁内一次性发布完整的配置快照；任一字段失败则全部不变，GET 立即读到旧值或完整新值而不会读到部分更新。成功返回 200 和完整生效配置（与 GET 相同的 `to_json`），不持久化到磁盘。已注入的运行节点在快照发布后通过原子 setter 生效：MAD 阈值用于下一帧，置信度用于下一帧检测与过滤，冷却时间用于下一次触发，LLM/存储开关用于后续任务。`GenAiWorker` 在进程启动后始终运行，两个开关都关闭时不编码、不发 HTTP；开关只决定后续任务是否编码和投递，不改变 worker 的启动/停止生命周期。视频源走专用切源接口；模型、线程数、端口以及 `storage.endpoint/storage.timeout_sec` 仅静态配置，不能热更。
 
 ```json
 {

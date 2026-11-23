@@ -142,7 +142,7 @@ void decode_output(const ncnn::Mat& out, int input_size, float scale, int pad_x,
 
 NcnnDetectorNode::NcnnDetectorNode(Options options, std::shared_ptr<Metrics> metrics)
     : BaseNode("ncnn_detector"), options_(std::move(options)),
-      metrics_(std::move(metrics)) {
+      conf_threshold_(options_.conf_threshold), metrics_(std::move(metrics)) {
   if (options_.class_names.empty()) {
     options_.class_names.assign(std::begin(kCocoLabels), std::end(kCocoLabels));
   }
@@ -267,6 +267,9 @@ FrameMetaPtr NcnnDetectorNode::process(FrameMetaPtr meta) {
 
   const auto start = std::chrono::steady_clock::now();
   const int input_size = options_.input_size;
+  // One read per frame keeps the threshold consistent across both the decode
+  // filter and the post-filter while a PATCH may update it concurrently.
+  const float conf_threshold = conf_threshold_.load();
   const float scale =
       std::min(static_cast<float>(input_size) / static_cast<float>(meta->width),
                static_cast<float>(input_size) / static_cast<float>(meta->height));
@@ -307,13 +310,13 @@ FrameMetaPtr NcnnDetectorNode::process(FrameMetaPtr meta) {
         continue;
       }
       decode_output(out, input_size, scale, pad_x, pad_y, meta->width,
-                    meta->height, options_.conf_threshold, options_.class_names,
+                    meta->height, conf_threshold, options_.class_names,
                     options_.max_candidates, candidates);
     }
   }
 
   const std::vector<TargetBox> filtered = detection::filter_detections(
-      candidates, options_.target_labels, options_.conf_threshold);
+      candidates, options_.target_labels, conf_threshold);
   meta->targets =
       detection::nms(filtered, options_.nms_threshold, options_.max_targets);
 

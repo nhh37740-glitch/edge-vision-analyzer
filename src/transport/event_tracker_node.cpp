@@ -38,7 +38,7 @@ FrameMetaPtr EventTrackerNode::process(FrameMetaPtr meta) {
         // The cooldown gates task creation, not the active state. Targets that
         // appear during the cooldown still form an event, but no task is
         // queued for them and there is no implicit retry.
-        if (!has_trigger_ || now_ms - last_trigger_ms_ >= cooldown_ms_) {
+        if (!has_trigger_ || now_ms - last_trigger_ms_ >= cooldown_ms_.load()) {
           triggered_ = true;
           has_trigger_ = true;
           last_trigger_ms_ = now_ms;
