@@ -6,9 +6,9 @@
 
 ## 1. 当前执行边界与后续启动条件
 
-当前已实现 C++17 构建骨架、aarch64 工具链、`src/core`／`src/common` 的节点框架、配置与指标，`src/capture` 的 FFmpeg 拉流、RGB24 解码、截帧和 remux 录片，以及 `src/api` 的 health、stats、config 读取和 source-switch 控制面；`test_core` 与 `test_capture` 提供离线覆盖。检测、推理、存储、推流与部署仍待实现。FastAPI `server.py` 在 `v0.3-nous` 实现。所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
+当前已实现 C++17 构建骨架、aarch64 工具链、`src/core`／`src/common` 的节点框架、配置与指标，`src/capture` 的 FFmpeg 拉流、RGB24 解码、截帧和 remux 录片，以及 `src/api` 的 health、stats、config 读取和 source-switch 控制面；`test_core`、`test_capture` 与 `test_api` 提供离线覆盖。检测、推理、存储、推流与部署仍待实现。FastAPI `server.py` 在 `v0.3-nous` 实现。所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
-当前仓库包含协作模板、GitHub Actions、根 [CMakeLists.txt](../CMakeLists.txt) 的 C++17 构建骨架和 `cmake/aarch64-toolchain.cmake`；Issue #1 已使 `edge_core` 与 `test_build` 可构建，Issue #2 增加 `edge_common` 与 `test_core`，Issue #3 增加 `edge_capture`，Issue #4 增加 `edge_api` 与运行入口，Issue #5 增加 `test_capture` 离线用例；其余目标随 `v0.1-oculus` 的各项 Issue 加入。FastAPI `server.py` 在 `v0.3-nous` 实现。接手 Agent 在收到开发指令后实施业务，所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
+当前仓库包含协作模板、GitHub Actions、根 [CMakeLists.txt](../CMakeLists.txt) 的 C++17 构建骨架和 `cmake/aarch64-toolchain.cmake`；Issue #1 已使 `edge_core` 与 `test_build` 可构建，Issue #2 增加 `edge_common` 与 `test_core`，Issue #3 增加 `edge_capture`，Issue #4 增加 `edge_api` 与运行入口，Issue #5 增加 `test_capture` 与 `test_api` 离线用例；其余目标随 `v0.1-oculus` 的各项 Issue 加入。FastAPI `server.py` 在 `v0.3-nous` 实现。接手 Agent 在收到开发指令后实施业务，所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
 每次获准实现前，先列明“业务模块 → 修改／新增的专属一级模块 → 用户可完成的功能”，明确文件范围、数据归属和验收方式。边缘实时视觉独占 `src/` 技术范围，PC 事件存储独占 `cloud-storage/` 及历史数据；两者经 HTTP 契约协作，不互相借用一级模块。具体责任说明以 [architecture](architecture.md) 为准。
 
@@ -137,7 +137,10 @@ edge-vision-analyzer/
 │       └── events.db
 └── tests/
     ├── fixtures/
+    ├── test_build.cpp
+    ├── test_core.cpp
     ├── test_capture.cpp
+    ├── test_api.cpp
     ├── test_detector.cpp
     ├── test_transport.cpp
     └── test_streamer.cpp
@@ -236,7 +239,7 @@ private:
 - `src/capture/capture_node.hpp` / `.cpp`、`frame_dumper.hpp` / `.cpp`：FFmpeg 拉流、本地循环、remux 录片与按间隔保存 JPEG。
 - 后续创建 `src/main.cpp` 的最小采集/控制面运行入口与录片命令行装配，使阶段 A 有可运行产物；`v1.0-vox` 再完善完整流水线组装与交付。
 - `src/api/api_server.hpp` / `.cpp`：挂载 `GET /api/v1/health`、`GET /api/v1/stats`、`GET /api/v1/config`、`POST /api/v1/source/switch`。
-- `tests/test_capture.cpp` 与极小离线 fixture；后续编译、交叉编译和阶段 A 的实际验收记录。
+- `tests/test_capture.cpp`、`tests/test_api.cpp` 与极小离线 fixture；后续编译、交叉编译和阶段 A 的实际验收记录。
 
 **内部架构：**
 

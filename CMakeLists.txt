@@ -81,11 +81,17 @@ if(BUILD_TESTING)
   add_test(NAME test_core COMMAND test_core)
 
   add_executable(test_capture tests/test_capture.cpp)
-  target_include_directories(test_capture PRIVATE ${HTTPLIB_INCLUDE_DIR})
   target_link_libraries(test_capture PRIVATE
-    edge_core edge_common edge_capture edge_api GTest::gtest_main)
+    edge_core edge_common edge_capture GTest::gtest_main)
   add_test(NAME test_capture COMMAND test_capture)
   set_tests_properties(test_capture PROPERTIES TIMEOUT 5)
+
+  add_executable(test_api tests/test_api.cpp)
+  target_include_directories(test_api PRIVATE ${HTTPLIB_INCLUDE_DIR})
+  target_link_libraries(test_api PRIVATE
+    edge_core edge_common edge_api GTest::gtest_main)
+  add_test(NAME test_api COMMAND test_api)
+  set_tests_properties(test_api PROPERTIES TIMEOUT 5)
 endif()
 
 # The sole executable and its install rule are added when src/main.cpp lands.

@@ -19,18 +19,12 @@ extern "C" {
 #include <libavutil/pixfmt.h>
 }
 
-#include "api/api_server.hpp"
 #include "capture/capture_node.hpp"
-#include "common/config.hpp"
 #include "common/metrics.hpp"
-#include "core/build_info.hpp"
 #include "core/node_state.hpp"
-#include "httplib.h"
-#include "nlohmann/json.hpp"
 
 namespace {
 
-using edge::ApiServer;
 using edge::CaptureNode;
 using edge::Metrics;
 using edge::NodeState;
@@ -197,16 +191,6 @@ CaptureNode::Options capture_options(const std::string& source, bool loop) {
   return options;
 }
 
-edge::Config api_config(const std::string& source) {
-  edge::Config config;
-  config.input.source = source;
-  config.input.loop = true;
-  config.streamer.http_port = 0;
-  config.llm.endpoint = "http://127.0.0.1:8080/v1/chat/completions";
-  config.storage.endpoint = "http://127.0.0.1:8090/api/v1/events";
-  return config;
-}
-
 bool wait_for(const std::function<bool()>& predicate) {
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
   while (std::chrono::steady_clock::now() < deadline) {
@@ -250,84 +234,6 @@ TEST(Capture, RejectsInvalidSourceAndKeepsOriginal) {
   EXPECT_TRUE(node.switch_source(second.path(), false, error)) << error;
   EXPECT_EQ(node.source(), second.path());
   EXPECT_FALSE(node.loop());
-}
-
-TEST(Api, HealthReportsRunningCapture) {
-  TempVideo video;
-  ASSERT_TRUE(video.valid());
-  auto metrics = std::make_shared<Metrics>();
-  auto capture = std::make_shared<CaptureNode>(capture_options(video.path(), true), metrics);
-  ApiServer api(api_config(video.path()), capture, metrics, "127.0.0.1");
-
-  std::string error;
-  ASSERT_TRUE(api.start(error)) << error;
-  ASSERT_GT(api.port(), 0);
-  capture->start();
-  ASSERT_TRUE(wait_for([&capture] { return capture->state() == NodeState::kRunning; }));
-
-  httplib::Client client("127.0.0.1", api.port());
-  const auto response = client.Get("/api/v1/health");
-  ASSERT_TRUE(response);
-  EXPECT_EQ(response->status, 200);
-
-  const nlohmann::json body = nlohmann::json::parse(response->body);
-  EXPECT_EQ(body.value("status", ""), "ok");
-  EXPECT_EQ(body.value("version", ""), edge::version());
-  ASSERT_EQ(body["nodes"].size(), 1u);
-  EXPECT_EQ(body["nodes"][0].value("name", ""), "CaptureNode");
-  EXPECT_EQ(body["nodes"][0].value("state", ""), "running");
-  EXPECT_EQ(body["llm"].value("status", ""), "disabled");
-  EXPECT_EQ(body["llm"].value("endpoint", ""), "http://127.0.0.1:8080/health");
-  EXPECT_EQ(body["storage"].value("status", ""), "disabled");
-  EXPECT_EQ(body["storage"].value("endpoint", ""), "http://127.0.0.1:8090/health");
-}
-
-TEST(Api, SwitchFailureKeepsOriginalAndSuccessUpdatesConfig) {
-  TempVideo first;
-  TempVideo second;
-  ASSERT_TRUE(first.valid());
-  ASSERT_TRUE(second.valid());
-  auto metrics = std::make_shared<Metrics>();
-  auto capture = std::make_shared<CaptureNode>(capture_options(first.path(), true), metrics);
-  ApiServer api(api_config(first.path()), capture, metrics, "127.0.0.1");
-
-  std::string error;
-  ASSERT_TRUE(api.start(error)) << error;
-  httplib::Client client("127.0.0.1", api.port());
-
-  const auto malformed = client.Post("/api/v1/source/switch", R"({"source":"x"})",
-                                     "application/json");
-  ASSERT_TRUE(malformed);
-  EXPECT_EQ(malformed->status, 400);
-  EXPECT_EQ(nlohmann::json::parse(malformed->body)["error"]["code"].get<std::string>(),
-            "INVALID_PARAMETER");
-
-  const std::string missing = unique_temp_path();
-  const auto failed = client.Post("/api/v1/source/switch",
-                                  nlohmann::json{{"source", missing}, {"loop", true}}.dump(),
-                                  "application/json");
-  ASSERT_TRUE(failed);
-  EXPECT_EQ(failed->status, 400);
-  EXPECT_EQ(nlohmann::json::parse(failed->body)["error"]["code"].get<std::string>(),
-            "INVALID_SOURCE");
-
-  const auto unchanged = client.Get("/api/v1/config");
-  ASSERT_TRUE(unchanged);
-  const nlohmann::json before = nlohmann::json::parse(unchanged->body);
-  EXPECT_EQ(before["input"]["source"], first.path());
-  EXPECT_TRUE(before["input"]["loop"].get<bool>());
-
-  const auto switched = client.Post(
-      "/api/v1/source/switch",
-      nlohmann::json{{"source", second.path()}, {"loop", false}}.dump(), "application/json");
-  ASSERT_TRUE(switched);
-  EXPECT_EQ(switched->status, 200);
-
-  const auto updated = client.Get("/api/v1/config");
-  ASSERT_TRUE(updated);
-  const nlohmann::json after = nlohmann::json::parse(updated->body);
-  EXPECT_EQ(after["input"]["source"], second.path());
-  EXPECT_FALSE(after["input"]["loop"].get<bool>());
 }
 
 }  // namespace
