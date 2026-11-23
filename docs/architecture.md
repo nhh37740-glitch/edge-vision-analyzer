@@ -130,7 +130,7 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 
 ## 8. 模块构建与链接边界（PATCH-005）
 
-根 [CMakeLists.txt](../CMakeLists.txt) 已启用 CXX 17；Issue #1 建立了 `edge_core` 静态库、`test_build` 和 `cmake/aarch64-toolchain.cmake`。其余源模块获准落地后，按下表分别创建 `STATIC` 库，不把所有 `.cpp` 填进主程序。
+根 [CMakeLists.txt](../CMakeLists.txt) 已启用 CXX 17；Issue #1 建立了 `edge_core` 静态库、`test_build` 和 `cmake/aarch64-toolchain.cmake`。已落地的源模块按上表创建对应 `STATIC` 库；其余模块获准落地后按同样边界加入，不把所有 `.cpp` 填进主程序。
 
 | 项目静态库 | 直接依赖 |
 | --- | --- |
@@ -142,11 +142,11 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 | `edge_streamer` | `edge_core`、`edge_common`、stb |
 | `edge_api` | `edge_core`、`edge_common`、cpp-httplib |
 
-未来 `src/main.cpp` 仅作入口，链接上述七个项目静态库形成唯一边缘可执行文件 `edge-vision-analyzer`；FFmpeg 等非头文件第三方底层运行库保持动态链接，不将“项目模块 STATIC”理解为全静态程序。依赖以目标为范围声明，实际 imported target 名称随所选版本登记，不把 FFmpeg 全局注入 core/common 或所有模块。`cloud-storage` 仍为独立 PC 进程，不参与此 C++ 链接图。
+`src/main.cpp` 已作为唯一运行入口，当前链接 `edge_core`、`edge_common`、`edge_capture` 和 `edge_api` 形成边缘可执行文件 `edge-vision-analyzer`；`edge_detector` 的 MotionNode 与 `edge_streamer` 的 OSD 标注尚未接入运行入口，`edge_transport` 目标待落地后按上表加入。FFmpeg 等非头文件第三方底层运行库保持动态链接，不将“项目模块 STATIC”理解为全静态程序。依赖以目标为范围声明，实际 imported target 名称随所选版本登记，不把 FFmpeg 全局注入 core/common 或所有模块。`cloud-storage` 仍为独立 PC 进程，不参与此 C++ 链接图。
 
 `include(CTest)` 已启用；每个单测可执行文件仅直接链接 `edge_core`、`edge_common`、被测模块和 `GTest::gtest_main`；被测模块按上表带入自身必要依赖。`test_detector` 不链接 capture、主程序或 FFmpeg。交叉编译设置 `BUILD_TESTING=OFF`；`cmake/aarch64-toolchain.cmake` 已由 Issue #1 建立，工具链与依赖版本记录在 README。
 
-真实程序目标存在后添加 `install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)`，为 release 打包提供安装目录；当前不创建空目标或声称已经产出二进制。
+`CMakeLists.txt` 已为 `edge-vision-analyzer` 添加 `install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)`，为 release 打包提供安装目录；本机已可构建该目标，不等于已交叉编译、打包或在目标机部署。
 
 ## 9. 配置、FFmpeg 生命周期与服务守护（PATCH-007）
 
@@ -166,7 +166,7 @@ FFmpeg 原生拥有型资源统一用 `std::unique_ptr<T, 自定义 deleter>` �
 
 应用日志只写 stdout／stderr，不在魔百盒创建业务日志文件，不加入定时删除日志、帧或缓存的外部清理脚本。服务模板 [edge-vision.service](../deploy/edge-vision.service) 将标准输出与错误交给 journal，内存存储与独立采集器按第 10 节部署契约接力；模板未安装，当前不声称目标机已运行或日志已接管。
 
-该模板采用工作目录 `/opt/edge-vision-analyzer`，规划启动命令为 `bin/edge-vision-analyzer --config /opt/edge-vision-analyzer/config/config.local.json`；`--config` 是后续程序必须实现并验收的 CLI 契约，当前没有业务程序可执行。安装文件和准备本地配置后，才在获准部署阶段启用服务。
+该模板采用工作目录 `/opt/edge-vision-analyzer`，启动命令为 `bin/edge-vision-analyzer --config /opt/edge-vision-analyzer/config/config.local.json`；`src/main.cpp` 已实现 `--config`，并支持阶段 A 的 `--record-clip` 与 `--duration`。模板尚未安装到目标机；安装文件并准备本地配置后，才在获准部署阶段启用服务。
 
 [`MemoryMax=300M`](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html) 是服务 cgroup 的 300 MiB 内存限制，无法在限制内回收时可能触发单元内 OOM 终止；它与业务目标 **RSS <150MB** 使用不同口径，不能替代业务内存优化或声称已经达到目标。[`Restart=always`](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html) 负责进程退出后的自动重启，仍受启动频率限制，显式停止服务时不会自动复起；它不是内存回收算法。RAII、有界队列、任务及时释放与 systemd 最后防线分别验收，不用杀进程或清理脚本代替资源管理。
 

@@ -116,6 +116,5 @@ if(BUILD_TESTING)
   set_tests_properties(test_streamer PROPERTIES TIMEOUT 5)
 endif()
 
-# The sole executable and its install rule are added when src/main.cpp lands.
 # Cross builds use -DBUILD_TESTING=OFF; cmake/aarch64-toolchain.cmake selects
 # the aarch64 cross compiler.
