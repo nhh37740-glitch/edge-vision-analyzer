@@ -1,6 +1,6 @@
 # Edge Vision Analyzer 架构
 
-状态：有效设计契约；v0.1 核心框架、采集模块与控制面已实现，v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）与 NcnnDetectorNode（NCNN 目标检测与 NMS）模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现（以上模块均尚未接入运行入口），PC 存储服务已实现，部署脚本与模板已就绪；运行入口接入与真机验收待执行。维护：项目接力 Agent；日期：2026-11-24（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集及 PC 日志落盘／查询，PATCH-009 补充部署对时与温度观测。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
+状态：有效设计契约；v0.1 核心框架、采集模块与控制面已实现，v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）与 NcnnDetectorNode（NCNN 目标检测与 NMS）模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现，以上模块已由 `src/main.cpp` 接入端到端运行入口；PC 存储服务已实现，部署脚本与模板已就绪，真机验收待执行。维护：项目接力 Agent；日期：2026-11-24（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集及 PC 日志落盘／查询，PATCH-009 补充部署对时与温度观测。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
 
 ## 1. 物理拓扑与三个服务入口
 
@@ -126,7 +126,7 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 
 实时 MJPEG 仍只在观看或快照请求时编码，无请求时不编码；可选 RTSP 使用 `-preset ultrafast -tune zerolatency -b:v 500k`。Nous 的事件 JPEG 编码与实时 OSD 输出编码用途不同，不把两者混用。后续验收需包含关闭上游／超时降级、队列丢旧与释放、优雅退出及 RSS **<150MB**；指标以实测记录为准。
 
-初始化和核心框架已交付：`edge_core` 的节点、队列与源分类，以及 `edge_common` 的配置和指标已实现并有本地离线测试。`edge_capture` 的 FFmpeg 拉流、RGB24 解码、EOF 循环、断线重连、截帧和仅视频 remux 录片，以及 `edge_api` 的实时控制端点和运行入口也已实现；`test_capture` 覆盖本地解码、循环与非法源，`test_api` 用伪 `SourceControl` 覆盖健康探针与切源。`edge_detector` 的 MotionNode／NcnnDetectorNode、`edge_streamer` 的 OSD／RTSP 与 `edge_transport` 的 JPEG／Base64、`GenAiWorker` 及 `EventTrackerNode` 已实现但尚未接入运行入口；PC 存储服务已实现，部署脚本与模板已就绪；运行入口接入与真机验收待执行。后续变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；静态检查和工作流定义不等于业务构建或运行验收。
+初始化和核心框架已交付：`edge_core` 的节点、队列与源分类，以及 `edge_common` 的配置和指标已实现并有本地离线测试。`edge_capture` 的 FFmpeg 拉流、RGB24 解码、EOF 循环、断线重连、截帧和仅视频 remux 录片，以及 `edge_api` 的实时控制端点和运行入口也已实现；`test_capture` 覆盖本地解码、循环与非法源，`test_api` 用伪 `SourceControl` 覆盖健康探针与切源。`edge_detector` 的 MotionNode／NcnnDetectorNode、`edge_streamer` 的 OSD／RTSP 与 `edge_transport` 的 JPEG／Base64、`GenAiWorker` 及 `EventTrackerNode` 已实现并由 `src/main.cpp` 装配为 CaptureNode → MotionNode → NcnnDetectorNode → EventTrackerNode → StreamOutNode 的端到端流水线，API 已接入快照与 MJPEG 回调；PC 存储服务已实现，部署脚本与模板已就绪，真机验收待执行。后续变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；静态检查和工作流定义不等于业务构建或运行验收。
 
 ## 8. 模块构建与链接边界（PATCH-005）
 
@@ -142,7 +142,7 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 | `edge_streamer` | `edge_core`、`edge_common`、stb |
 | `edge_api` | `edge_core`、`edge_common`、cpp-httplib |
 
-`src/main.cpp` 已作为唯一运行入口，当前链接 `edge_core`、`edge_common`、`edge_capture` 和 `edge_api` 形成边缘可执行文件 `edge-vision-analyzer`；`edge_detector` 的 MotionNode／NcnnDetectorNode、`edge_streamer` 的 OSD／RTSP 推流与 `edge_transport` 的 `jpeg_base64`／`GenAiWorker`／`EventTrackerNode` 均已实现并有离线测试，但尚未接入运行入口。FFmpeg 等非头文件第三方底层运行库保持动态链接，不将“项目模块 STATIC”理解为全静态程序。依赖以目标为范围声明，实际 imported target 名称随所选版本登记，不把 FFmpeg 全局注入 core/common 或所有模块。`cloud-storage` 仍为独立 PC 进程，不参与此 C++ 链接图。
+`src/main.cpp` 已作为唯一运行入口，当前链接 `edge_core`、`edge_common`、`edge_capture`、`edge_detector`、`edge_streamer`、`edge_transport` 和 `edge_api` 形成边缘可执行文件 `edge-vision-analyzer`，按配置串联 CaptureNode → MotionNode → NcnnDetectorNode → EventTrackerNode → StreamOutNode，并注册 `SIGINT`／`SIGTERM` 优雅退出；`edge_detector` 的 MotionNode／NcnnDetectorNode、`edge_streamer` 的 OSD／RTSP 推流与 `edge_transport` 的 `jpeg_base64`／`GenAiWorker`／`EventTrackerNode` 均已实现并有离线测试。FFmpeg 等非头文件第三方底层运行库保持动态链接，不将“项目模块 STATIC”理解为全静态程序。依赖以目标为范围声明，实际 imported target 名称随所选版本登记，不把 FFmpeg 全局注入 core/common 或所有模块。`cloud-storage` 仍为独立 PC 进程，不参与此 C++ 链接图。
 
 `include(CTest)` 已启用；每个单测可执行文件仅直接链接 `edge_core`、`edge_common`、被测模块和 `GTest::gtest_main`；被测模块按上表带入自身必要依赖。`test_detector` 不链接 capture、主程序或 FFmpeg。交叉编译设置 `BUILD_TESTING=OFF`；`cmake/aarch64-toolchain.cmake` 已由 Issue #1 建立，工具链与依赖版本记录在 README。
 
@@ -166,7 +166,7 @@ FFmpeg 原生拥有型资源统一用 `std::unique_ptr<T, 自定义 deleter>` �
 
 应用日志只写 stdout／stderr，不在魔百盒创建业务日志文件，不加入定时删除日志、帧或缓存的外部清理脚本。服务模板 [edge-vision.service](../deploy/edge-vision.service) 将标准输出与错误交给 journal，内存存储与独立采集器按第 10 节部署契约接力；模板未安装，当前不声称目标机已运行或日志已接管。
 
-该模板采用工作目录 `/opt/edge-vision-analyzer`，启动命令为 `bin/edge-vision-analyzer --config /opt/edge-vision-analyzer/config/config.local.json`；`src/main.cpp` 已实现 `--config`，并支持阶段 A 的 `--record-clip` 与 `--duration`。模板尚未安装到目标机；安装文件并准备本地配置后，才在获准部署阶段启用服务。
+该模板采用工作目录 `/opt/edge-vision-analyzer`，启动命令为 `bin/edge-vision-analyzer --config /opt/edge-vision-analyzer/config/config.local.json`；`src/main.cpp` 已实现 `--config`，并支持阶段 A 的 `--record-clip` 与 `--duration`，启动时按配置装配采集、帧差、检测、事件聚合、异步投递与流输出节点，注册 `SIGINT`／`SIGTERM` 后按上游到下游顺序停止。模板尚未安装到目标机；安装文件并准备本地配置后，才在获准部署阶段启用服务。
 
 [`MemoryMax=300M`](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html) 是服务 cgroup 的 300 MiB 内存限制，无法在限制内回收时可能触发单元内 OOM 终止；它与业务目标 **RSS <150MB** 使用不同口径，不能替代业务内存优化或声称已经达到目标。[`Restart=always`](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html) 负责进程退出后的自动重启，仍受启动频率限制，显式停止服务时不会自动复起；它不是内存回收算法。RAII、有界队列、任务及时释放与 systemd 最后防线分别验收，不用杀进程或清理脚本代替资源管理。
 

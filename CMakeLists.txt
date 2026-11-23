@@ -111,7 +111,8 @@ endif()
 
 add_executable(edge-vision-analyzer src/main.cpp)
 target_link_libraries(edge-vision-analyzer PRIVATE
-  edge_core edge_common edge_capture edge_api)
+  edge_core edge_common edge_capture edge_detector edge_transport edge_streamer
+  edge_api)
 install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)
 
 # Remaining libraries keep their own sources and direct dependencies.

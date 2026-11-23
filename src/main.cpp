@@ -1,17 +1,26 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 
 #include "api/api_server.hpp"
 #include "capture/capture_node.hpp"
 #include "common/config.hpp"
 #include "common/metrics.hpp"
+#include "core/base_node.hpp"
 #include "core/build_info.hpp"
+#include "detector/motion_node.hpp"
+#include "detector/ncnn_detector_node.hpp"
+#include "streamer/stream_out_node.hpp"
+#include "transport/event_tracker_node.hpp"
+#include "transport/genai_worker.hpp"
 
 namespace {
 
@@ -81,6 +90,13 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  std::signal(SIGINT, handle_signal);
+  std::signal(SIGTERM, handle_signal);
+#ifdef SIGBREAK
+  // Windows console break; harmless elsewhere and keeps dev runs stoppable.
+  std::signal(SIGBREAK, handle_signal);
+#endif
+
   edge::CaptureNode::Options capture_options;
   capture_options.source = config.input.source;
   capture_options.loop = config.input.loop;
@@ -93,18 +109,87 @@ int main(int argc, char** argv) {
 
   auto metrics = std::make_shared<edge::Metrics>();
   auto capture = std::make_shared<edge::CaptureNode>(capture_options, metrics);
-  auto api = std::make_shared<edge::ApiServer>(config, capture, metrics);
+
+  auto motion = std::make_shared<edge::MotionNode>(config.detector.motion_mad_threshold);
+
+  edge::NcnnDetectorNode::Options detector_options;
+  detector_options.model_param = config.detector.model_param;
+  detector_options.model_bin = config.detector.model_bin;
+  detector_options.target_labels = config.detector.target_labels;
+  detector_options.conf_threshold = static_cast<float>(config.detector.conf_threshold);
+  detector_options.input_size = config.detector.input_size;
+  detector_options.num_threads = config.detector.num_threads;
+  detector_options.quantization = config.detector.quantization;
+  detector_options.model_candidates = config.detector.model_candidates;
+  auto detector = std::make_shared<edge::NcnnDetectorNode>(detector_options);
+  if (!detector->load()) {
+    // The pipeline stays usable without weights: frames pass through unchanged.
+    std::fprintf(stderr,
+                 "NcnnDetectorNode: model unavailable; frames will pass through\n");
+  }
+
+  std::shared_ptr<edge::GenAiWorker> worker;
+  if (config.llm.enabled || config.storage.enabled) {
+    worker = std::make_shared<edge::GenAiWorker>(config.llm, config.storage);
+  }
+
+  edge::EventOptions event_options;
+  event_options.end_grace_sec = config.event.end_grace_sec;
+  event_options.cooldown_sec = config.llm.cooldown_sec;
+  if (worker) {
+    event_options.submit = [worker](edge::GenAiTask task) {
+      return worker->submit(std::move(task));
+    };
+  }
+  auto tracker = std::make_shared<edge::EventTrackerNode>(std::move(event_options));
+
+  auto stream_out = std::make_shared<edge::StreamOutNode>();
+
+  capture->attach_next(motion);
+  motion->attach_next(detector);
+  detector->attach_next(tracker);
+  tracker->attach_next(stream_out);
+
+  edge::StreamCallbacks stream_callbacks;
+  stream_callbacks.subscribe = [stream_out] { stream_out->subscribe(); };
+  stream_callbacks.unsubscribe = [stream_out] { stream_out->unsubscribe(); };
+  stream_callbacks.request_snapshot = [stream_out] { stream_out->request_snapshot(); };
+  stream_callbacks.wait_for_jpeg =
+      [stream_out](std::uint64_t after_seq, std::chrono::milliseconds timeout) {
+        return stream_out->wait_for_jpeg(after_seq, timeout);
+      };
+  stream_callbacks.latest_jpeg_seq = [stream_out] { return stream_out->latest_jpeg_seq(); };
+
+  auto api = std::make_shared<edge::ApiServer>(
+      config, capture, metrics, "0.0.0.0",
+      std::optional<edge::StreamCallbacks>(std::move(stream_callbacks)));
+
+  // Upstream nodes start last so no frame reaches a node whose worker is not
+  // running yet.
+  if (worker) {
+    worker->start();
+  }
+  stream_out->start();
+  tracker->start();
+  detector->start();
+  motion->start();
+  capture->start();
 
   std::string error;
   if (!api->start(error)) {
     std::fprintf(stderr, "%s\n", error.c_str());
+    // Roll back the nodes already started, upstream first.
+    capture->stop();
+    motion->stop();
+    detector->stop();
+    tracker->stop();
+    stream_out->stop();
+    if (worker) {
+      worker->stop();
+    }
     return 1;
   }
 
-  std::signal(SIGINT, handle_signal);
-  std::signal(SIGTERM, handle_signal);
-
-  capture->start();
   std::fprintf(stderr, "edge-vision-analyzer %s listening on :%d\n", edge::version(),
                api->port());
 
@@ -115,7 +200,15 @@ int main(int argc, char** argv) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 
+  // Stop upstream first, then wait for each downstream stage to drain.
   capture->stop();
+  motion->stop();
+  detector->stop();
+  tracker->stop();
+  stream_out->stop();
+  if (worker) {
+    worker->stop();
+  }
   api->stop();
   return 0;
 }
