@@ -1,8 +1,8 @@
 # Edge Vision Analyzer — 双服务 API 契约
 
-状态：有效设计契约，全部端点待实现。维护责任：项目维护 Agent。更新日期：2026-11-23（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
+状态：有效设计契约；`v0.1-oculus` 的 health、stats、config 读取与 source-switch 四个操作已实现并在本机回环验证，PATCH config、快照、实时流与云存储端点待实现。维护责任：项目维护 Agent。更新日期：2026-11-23（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
 
-本轮仅初始化文档，不代表 API 已运行或完成验收。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
+本轮不宣称真机验收；已实现范围仅指本机回环验证。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
 
 ## 1. 两个服务的地址与职责
 
@@ -95,7 +95,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 
 保留原统计中无冲突的平均 LLM 耗时和累计丢帧指标。未启用或尚无样本的阶段指标返回 0。无状态边缘节点 RSS 目标严格 **小于 150MB**；实际超限仍须如实报告测量值。
 
-可选字段 `soc_temp_c` 为可空数字，单位摄氏度。读取 Linux `/sys/class/thermal/thermal_zone0/temp` 的毫摄氏度值并除以 1000，例如 62500 对应 `62.5`；读取或解析失败返回 `null`，不使用 0 代替错误。该值仅供压测观测，不触发限频、停机或其他温控动作。当前仍为待实现契约。
+可选字段 `soc_temp_c` 为可空数字，单位摄氏度。读取 Linux `/sys/class/thermal/thermal_zone0/temp` 的毫摄氏度值并除以 1000，例如 62500 对应 `62.5`；读取或解析失败返回 `null`，不使用 0 代替错误。该值仅供压测观测，不触发限频、停机或其他温控动作。Linux 实现已具备，目标机实测待补。
 
 ## 3. 边缘配置读取与热更新
 

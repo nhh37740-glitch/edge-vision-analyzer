@@ -14,7 +14,9 @@
 
 ## 已登记记录
 
-暂无。
+- 现象与命令：Win11 运行监听 `0.0.0.0` 的 `edge-vision-analyzer.exe` 或 `test_capture.exe` 首次弹 Windows Defender 防火墙确认，需人工允许。
+- 根因：新可执行文件没有已登记的入站规则；仅绑定 `127.0.0.1` 的回环监听不会触发。
+- 解决命令：点击允许后规则生效；API 测试改用 `127.0.0.1`，正式服务保留 `0.0.0.0`。见 [讨论 #30](https://github.com/nhh37740-glitch/edge-vision-analyzer/discussions/30)。
 
 ## 常驻提示（PATCH-009）
 
