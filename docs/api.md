@@ -1,8 +1,8 @@
 # Edge Vision Analyzer — 双服务 API 契约
 
-状态：有效设计契约，全部端点待实现。维护责任：项目维护 Agent。更新日期：2026-11-23（北京时间）。依据：PATCH-001、PATCH-002、PATCH-003；存储与历史查询以 PATCH-003 为准。
+状态：有效设计契约，全部端点待实现。维护责任：项目维护 Agent。更新日期：2026-11-23（北京时间）。依据：PATCH-001 至 PATCH-007；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准。
 
-本轮仅初始化文档，不代表 API 已运行或完成验收。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。默认配置见 [config/config.json](../config/config.json)，PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
+本轮仅初始化文档，不代表 API 已运行或完成验收。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
 
 ## 1. 两个服务的地址与职责
 
@@ -12,7 +12,7 @@
 | 联想 PC cloud-storage | `http://192.168.10.10:8090` | 留存干净 JPEG、SQLite 结构化事件与历史查询 |
 | 联想 PC llama-server（外部依赖） | `http://192.168.10.10:8080` | 多模态语义推理，不承担留存与历史查询 |
 
-边缘进程计划监听 `0.0.0.0:8081`，云存储进程计划监听 `0.0.0.0:8090`。调用时使用实际设备地址。OpenAPI 的每个路径分别设置 `servers`，避免把不同服务当作可互换的服务器列表。
+全部服务只在同一有线局域网内通信，推理固定使用联想 PC `:8080` 的本地 `llama-server`，留存使用同机 `:8090` 的 `cloud-storage`，不接公有云服务。边缘进程计划监听 `0.0.0.0:8081`，云存储进程计划监听 `0.0.0.0:8090`。调用时使用实际设备地址。OpenAPI 的每个路径分别设置 `servers`，避免把不同服务当作可互换的服务器列表。
 
 边缘端共 6 个资源路径、7 个操作：
 
@@ -20,7 +20,7 @@
 | --- | --- | --- | --- |
 | GET | `/api/v1/health` | `v0.1-oculus` | 存活、版本、时长、节点线程及 LLM/Storage 连通状态 |
 | GET | `/api/v1/stats` | `v0.1-oculus` | FPS、跳过率、耗时、丢帧及 RSS |
-| GET | `/api/v1/config` | `v0.1-oculus` | 生效配置，`llm.api_key` 始终为 `***` |
+| GET | `/api/v1/config` | `v0.1-oculus` | 读取当前生效配置 |
 | PATCH | `/api/v1/config` | `v0.2-discern`，存储开关于 `v0.3-nous` 接入 | 原子热更新检测/LLM/Storage 五项字段 |
 | POST | `/api/v1/source/switch` | `v0.1-oculus` | 切换手机流/本地文件；失败保留原源 |
 | GET | `/api/v1/snapshot.jpg` | `v1.0-vox` | 实时 OSD JPEG；无首帧返回 503 |
@@ -48,7 +48,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 }
 ```
 
-400 表示字段、参数、源初始化或图像输入非法；404 表示资源不存在；500 表示内部错误，包括文件/SQLite 写入失败；503 表示边缘画面/节点或云数据库未就绪。错误信息不得暴露磁盘路径或凭据。JSON 字段与范围维护在 OpenAPI 中。
+400 表示字段、参数、源初始化或图像输入非法；404 表示资源不存在；500 表示内部错误，包括文件/SQLite 写入失败；503 表示边缘画面/节点或云数据库未就绪。错误信息不得暴露磁盘路径。JSON 字段与范围维护在 OpenAPI 中。
 
 ## 2. 边缘健康与统计
 
@@ -94,18 +94,18 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 
 ## 3. 边缘配置读取与热更新
 
-`GET :8081/api/v1/config` 返回当前生效配置，覆盖 [config.json](../config/config.json) 的全部字段：
+`GET :8081/api/v1/config` 返回当前生效配置，覆盖 [config.example.json](../config/config.example.json) 的全部字段：
 
 | 配置块 | 字段 |
 | --- | --- |
 | `input` | `source`, `loop`, `width`, `height`, `target_fps`, `dump_interval_sec` |
 | `detector` | `motion_mad_threshold`, `model_param`, `model_bin`, `input_size`, `conf_threshold`, `num_threads`, `target_labels` |
 | `event` | `end_grace_sec` |
-| `llm` | `enabled`, `endpoint`, `api_key`, `model`, `prompt`, `cooldown_sec`, `connect_timeout_sec`, `read_timeout_sec`, `jpeg_quality` |
+| `llm` | `enabled`, `endpoint`, `model`, `prompt`, `cooldown_sec`, `connect_timeout_sec`, `read_timeout_sec`, `jpeg_quality` |
 | `storage` | `enabled`, `endpoint`, `timeout_sec` |
 | `streamer` | `mode`, `http_port`, `rtsp_url` |
 
-`event.max_events_in_memory` 已移除。`llm.api_key` 无论原配置是什么，响应都为 `***`。OpenAPI `Config/PublicLlmConfig` 是公开响应视图；磁盘示例中的 `local-no-key` 仅为占位值。
+`event.max_events_in_memory` 已移除。OpenAPI `Config/LlmConfig` 与公开配置模板字段一致；本地地址等运行参数写入 `config/config.local.json`，该文件不提交仓库。
 
 `PATCH :8081/api/v1/config` 使用嵌套结构：
 
@@ -119,7 +119,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 
 仅允许五个叶子字段：`detector.motion_mad_threshold`（0..255）、`detector.conf_threshold`（0..1）、`llm.enabled`（布尔）、`llm.cooldown_sec`（非负秒数）、`storage.enabled`（布尔）。原四项在 `v0.2-discern` 实现，存储开关于 `v0.3-nous` 接入。可只提交一个字段；拒绝空对象、未知字段、错误类型及范围错误，返回 400。
 
-先验证整份请求，再无锁发布不可变配置快照；任一字段失败则全部不变。成功返回 200 和完整脱敏生效配置，不持久化到磁盘。视频源走专用切源接口；模型、线程数、端口、密钥以及 `storage.endpoint/storage.timeout_sec` 仅静态配置，不能热更。
+先验证整份请求，再无锁发布不可变配置快照；任一字段失败则全部不变。成功返回 200 和完整生效配置，不持久化到磁盘。视频源走专用切源接口；模型、线程数、端口以及 `storage.endpoint/storage.timeout_sec` 仅静态配置，不能热更。
 
 ```json
 {
@@ -261,4 +261,4 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 
 成功取 `choices[0].message.content`，随后与事件元数据合并投递 PC 云存储，不回填边缘历史表。JPEG 使用 `stbi_write_jpg_to_func` 在内存中编码，默认质量 70；应在 OSD 展示绘制前取得干净画面。同一事件由活动状态聚合与冷却机制触发，规则见架构和路线图。
 
-本节 LLM 两个接口不纳入本仓库 OpenAPI paths。后续需与实际 llama-server 版本联调核对多模态支持，不能据此宣称已部署或已验收。配置实际凭据时由客户端发送相应认证信息，凭据不得在配置响应、日志或 Issue 中回显。
+本节 LLM 两个接口不纳入本仓库 OpenAPI paths。后续需与实际 llama-server 版本联调核对多模态支持，不能据此宣称已部署或已验收。

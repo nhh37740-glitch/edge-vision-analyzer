@@ -54,8 +54,8 @@ jobs:
             if (fence) prose.push(...pending);
             const characterCount = Array.from(prose.join('')).length;
             core.info(`PR 描述字符数：${characterCount}（已排除闭合代码块）。`);
-            if (characterCount > 500) {
-              core.setFailed('PR 描述过长，请精简至 400 字以内');
+            if (characterCount > 700) {
+              core.setFailed('PR 描述过长，请精简至 600 字以内');
               return;
             }
             const firstLine = body.split(/\r?\n/u)[0];

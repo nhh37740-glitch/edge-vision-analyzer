@@ -1,4 +1,5 @@
 # Build output and local IDE settings
+build/
 /build*/
 /out/
 CMakeFiles/
@@ -20,15 +21,16 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+/config/config.local.json
 /config/*.local.json
 *.pem
 *.key
 
 # Model weights, recordings and runtime output
-/models/*.param
-/models/*.bin
-/models/*.gguf
-/models/*.onnx
+*.param
+*.bin
+*.gguf
+*.onnx
 /models/*.safetensors
 /assets/*
 !/assets/.gitkeep
@@ -43,6 +45,5 @@ Thumbs.db
 *.avi
 *.mov
 *.ts
-# Small offline fixtures may be added explicitly in a later milestone.
-!/tests/fixtures/*.mp4
-!/tests/fixtures/*.mkv
+__pycache__/
+.pytest_cache/

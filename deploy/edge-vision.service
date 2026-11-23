@@ -1,0 +1,26 @@
+# PATCH-007 deployment template only; not installed or started by this repository.
+# Future CLI contract: the implemented binary must accept --config <local-json>.
+# Prepare /opt/edge-vision-analyzer and its ignored config/config.local.json first.
+# MemoryMax controls cgroup memory; the separate application RSS target is <150MB.
+# Restart=always remains subject to systemd start limits and does not undo a stop.
+# See https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html
+# and https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html
+[Unit]
+Description=Edge Vision Analyzer
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/edge-vision-analyzer
+ExecStart=/opt/edge-vision-analyzer/bin/edge-vision-analyzer --config /opt/edge-vision-analyzer/config/config.local.json
+MemoryAccounting=yes
+MemoryMax=300M
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=edge-vision
+
+[Install]
+WantedBy=multi-user.target
