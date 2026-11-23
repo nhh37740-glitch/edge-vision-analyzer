@@ -20,6 +20,26 @@ if(NOT HTTPLIB_FOUND)
   find_path(HTTPLIB_INCLUDE_DIR NAMES httplib.h REQUIRED)
 endif()
 
+# NCNN for edge_detector (Issue #42), pinned to a released tag. Never track
+# main/master. Tooling, examples, tests, Python bindings and Vulkan stay off.
+include(FetchContent)
+set(NCNN_VULKAN OFF CACHE BOOL "" FORCE)
+set(NCNN_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(NCNN_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(NCNN_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
+set(NCNN_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(NCNN_PYTHON OFF CACHE BOOL "" FORCE)
+set(NCNN_INSTALL_SDK OFF CACHE BOOL "" FORCE)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.0)
+  # ncnn still declares a CMake <3.5 compatibility floor, which CMake 4 rejects.
+  set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
+endif()
+FetchContent_Declare(ncnn
+  URL https://github.com/Tencent/ncnn/archive/refs/tags/20261020.tar.gz
+  URL_HASH SHA256=968d8d8e65ccadc803322f8238736176e0f9c929fcf484895f58a63e6b227127
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+FetchContent_MakeAvailable(ncnn)
+
 add_library(edge_core STATIC
   src/core/base_node.cpp
   src/core/build_info.cpp
@@ -37,9 +57,9 @@ target_link_libraries(edge_common PUBLIC nlohmann_json::nlohmann_json)
 
 add_library(edge_detector STATIC
   src/detector/motion_node.cpp
+  src/detector/ncnn_detector_node.cpp
 )
-# NCNN joins this target with NcnnDetectorNode (Issue #42).
-target_link_libraries(edge_detector PUBLIC edge_core edge_common)
+target_link_libraries(edge_detector PUBLIC edge_core edge_common PRIVATE ncnn)
 
 add_library(edge_capture STATIC
   src/capture/capture_node.cpp

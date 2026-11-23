@@ -2,10 +2,13 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "core/frame_meta.hpp"
+#include "detector/detection_utils.hpp"
 #include "detector/motion_node.hpp"
+#include "detector/ncnn_detector_node.hpp"
 
 namespace {
 
@@ -88,6 +91,90 @@ TEST(MotionNode, EmptyOrShortFrameIsSafe) {
   auto valid = make_frame(64, 48, 10);
   node.process(valid);
   EXPECT_TRUE(valid->has_motion);
+}
+
+edge::TargetBox make_box(int class_id, const std::string& label, float score,
+                         float x, float y, float w, float h) {
+  edge::TargetBox box;
+  box.class_id = class_id;
+  box.label = label;
+  box.score = score;
+  box.x = x;
+  box.y = y;
+  box.w = w;
+  box.h = h;
+  return box;
+}
+
+TEST(DetectionUtils, FilterDropsLowScoreAndUnlistedLabels) {
+  const std::vector<edge::TargetBox> boxes = {
+      make_box(0, "person", 0.90f, 0.1f, 0.1f, 0.2f, 0.3f),
+      make_box(0, "person", 0.40f, 0.2f, 0.2f, 0.2f, 0.3f),
+      make_box(2, "car", 0.80f, 0.5f, 0.5f, 0.2f, 0.2f),
+  };
+
+  const auto filtered =
+      edge::detection::filter_detections(boxes, {"person"}, 0.5f);
+  ASSERT_EQ(filtered.size(), 1u);
+  EXPECT_EQ(filtered[0].label, "person");
+  EXPECT_FLOAT_EQ(filtered[0].score, 0.90f);
+
+  // Without a label list only the confidence threshold applies.
+  const auto all_labels = edge::detection::filter_detections(boxes, {}, 0.5f);
+  ASSERT_EQ(all_labels.size(), 2u);
+  EXPECT_EQ(all_labels[0].label, "person");
+  EXPECT_EQ(all_labels[1].label, "car");
+}
+
+TEST(DetectionUtils, NmsSuppressesOverlappingBoxes) {
+  std::vector<edge::TargetBox> boxes = {
+      make_box(0, "person", 0.90f, 0.10f, 0.10f, 0.40f, 0.40f),
+      make_box(0, "person", 0.80f, 0.12f, 0.12f, 0.40f, 0.40f),
+      make_box(1, "bicycle", 0.85f, 0.10f, 0.10f, 0.40f, 0.40f),
+      make_box(0, "person", 0.70f, 0.70f, 0.70f, 0.20f, 0.20f),
+  };
+
+  const auto kept = edge::detection::nms(boxes, 0.45f);
+  ASSERT_EQ(kept.size(), 3u);
+  EXPECT_FLOAT_EQ(kept[0].score, 0.90f);
+  // The bicycle overlaps the person but has a different class.
+  EXPECT_FLOAT_EQ(kept[1].score, 0.85f);
+  EXPECT_FLOAT_EQ(kept[2].score, 0.70f);
+}
+
+TEST(DetectionUtils, EmptyInputReturnsEmpty) {
+  EXPECT_TRUE(edge::detection::filter_detections({}, {"person"}, 0.5f).empty());
+  EXPECT_TRUE(edge::detection::nms({}, 0.45f).empty());
+}
+
+// Exposes process() so the unloaded-node path can be checked without threads.
+class ExposedNcnnDetectorNode : public edge::NcnnDetectorNode {
+ public:
+  using edge::NcnnDetectorNode::NcnnDetectorNode;
+  using edge::NcnnDetectorNode::process;
+};
+
+TEST(NcnnDetectorNode, MissingModelFailsAndPassesFrameThrough) {
+  edge::NcnnDetectorNode::Options options;
+  options.model_param = "models/does-not-exist.param";
+  options.model_bin = "models/does-not-exist.bin";
+  ExposedNcnnDetectorNode node(options);
+
+  EXPECT_FALSE(node.load());
+  EXPECT_FALSE(node.loaded());
+
+  auto motion = make_frame(8, 8, 128);
+  motion->has_motion = true;
+  motion->infer_ms = 7.5;
+  motion->targets.push_back(make_box(0, "person", 0.9f, 0.1f, 0.1f, 0.2f, 0.2f));
+
+  EXPECT_EQ(node.process(motion), motion);
+  EXPECT_EQ(motion->targets.size(), 1u);
+  EXPECT_DOUBLE_EQ(motion->infer_ms, 7.5);
+
+  auto still = make_frame(8, 8, 128);
+  EXPECT_EQ(node.process(still), still);
+  EXPECT_TRUE(still->targets.empty());
 }
 
 }  // namespace
