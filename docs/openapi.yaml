@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Edge Vision Analyzer 边缘与云存储 API
   version: 0.1.0
-  description: PATCH-003/007/008 两服务设计契约，全部端点待实现。服务仅在同一有线局域网通信；边缘:8081仅实时控制与流媒体，联想PC cloud-storage:8090保存历史事件、图片和接收日志，llama-server:8080仅提供本地推理。不接公有云服务。每个路径单独绑定servers，外部llama-server不在本OpenAPI
+  description: PATCH-003/007/008/009 两服务设计契约，全部端点待实现。服务仅在同一有线局域网通信；边缘:8081仅实时控制与流媒体，联想PC cloud-storage:8090保存历史事件、图片和接收日志，llama-server:8080仅提供本地推理。不接公有云服务。每个路径单独绑定servers，外部llama-server不在本OpenAPI
     paths中。
 tags:
 - name: v0.1-oculus
@@ -62,6 +62,7 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/Unavailable'
+      description: 读取性能与资源统计，可包含nullable的soc_temp_c温度观测值；温度字段不承担温控。全部指标仍为待实现契约。
     servers:
     - url: http://192.168.10.11:8081
       description: 魔百盒边缘实时控制与流媒体；此路径只属于边缘端。
@@ -280,7 +281,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateEventRequest'
-      description: 将image_base64解码为JPEG；按timestamp_ms的UTC日期写入storage/images/YYYY-MM-DD/<event_id>.jpg，SQLite保存相对路径及元数据（schema.sql）。不接收调用方文件路径；event_id限定安全字符且仅服务端生成文件名。重复event_id返回400/EVENT_EXISTS，不覆盖原留存；无效Base64/JPEG/字段返回400，文件/数据库写入失败返回500。
+      description: 先校验timestamp_ms为必填非负int64整数，0合法；缺失、负值、错误类型/非整数/布尔或越界返回400。合法值早于2025-01-01T00:00:00Z（1735689600000）或晚于9999-12-31T23:59:59.999Z时，使用PC接收本请求时只取一次的当前Unix毫秒；范围内（含两端）保留入站值。选定的同一个有效timestamp_ms同时用于SQLite、历史列表/排序及图片UTC日期，event_id等其他字段不变。将image_base64解码为JPEG，写入storage/images/YYYY-MM-DD/<event_id>.jpg；SQLite保存相对路径和元数据（schema.sql）。不接收调用方路径；event_id限定安全字符且仅服务端生成文件名。重复event_id返回400/EVENT_EXISTS，不覆盖原留存；无效Base64/JPEG/字段返回400，文件/数据库写入失败返回500。以上均为待实现规则。
     get:
       operationId: listStoredEvents
       summary: 分页查询历史结构化事件
@@ -320,7 +321,7 @@ paths:
           minimum: 0
           default: 0
         description: 跳过的记录数，必须为非负整数。
-      description: 按timestamp_ms DESC排序；同毫秒以event_id DESC稳定排序。total为数据库全部事件数，不受limit/offset影响。事件含相对image_url，不包含宿主机绝对路径。
+      description: 按入库时选定的有效timestamp_ms DESC排序，同毫秒以event_id DESC稳定排序；响应timestamp_ms及image_url中的UTC日期与入库值保持一致。total为数据库全部事件数，不受limit/offset影响。事件含相对image_url，不包含宿主机绝对路径。
   /api/v1/images/{date}/{filename}:
     servers:
     - url: http://192.168.10.10:8090
@@ -355,7 +356,7 @@ paths:
           type: string
           pattern: ^\d{4}-\d{2}-\d{2}$
           example: '2026-11-23'
-        description: timestamp_ms对应UTC日期YYYY-MM-DD，须为真实日历日期。
+        description: 入库时选定的有效timestamp_ms对应UTC日期YYYY-MM-DD；未对时兜底后须使用PC接收时间对应日期，并校验为真实日历日期。
       - name: filename
         in: path
         required: true
@@ -570,6 +571,12 @@ components:
           type: number
           minimum: 0
           example: 142.6
+        soc_temp_c:
+          type: number
+          format: float
+          nullable: true
+          description: 可选的SoC摄氏温度；读取Linux /sys/class/thermal/thermal_zone0/temp的毫摄氏度后除以1000，读取或解析失败返回null。仅用于压测观测，不触发温控动作。
+          example: 62.5
       required:
       - capture_fps
       - detect_fps
@@ -920,6 +927,8 @@ components:
           minimum: 0
           format: int64
           example: 1795412000123
+          maximum: 9223372036854775807
+          description: 必填的非负int64 Unix毫秒。0合法；缺失、负值、错误类型（含布尔/非整数）或超出int64范围返回400。早于1735689600000（2025-01-01T00:00:00Z）或晚于9999-12-31T23:59:59.999Z的合法整数使用PC接收时间，其余保留原值。
         top_label:
           type: string
           example: person
@@ -999,6 +1008,8 @@ components:
           minimum: 0
           format: int64
           example: 1795412000123
+          maximum: 9223372036854775807
+          description: 入库前一次确定的有效Unix毫秒，已完成未对时兜底；SQLite、历史返回/排序及图片UTC日期使用同一个值。早于2025-01-01或无法形成四位年份日期的合法入站值改用PC接收时间。
         top_label:
           type: string
           example: person
@@ -1038,7 +1049,7 @@ components:
       - llm_latency_ms
       - image_url
       - created_at
-      description: targets由SQLite targets_json解析，image_url由image_rel_path生成；不返回image_base64、image_rel_path或数据库路径。
+      description: 历史结构化事件。timestamp_ms为入库时已经确定的有效时间；图片日期和列表排序使用相同值。targets由SQLite targets_json解析，image_url由image_rel_path生成，不返回图片Base64或磁盘路径。
     StoredEventsResponse:
       type: object
       additionalProperties: false

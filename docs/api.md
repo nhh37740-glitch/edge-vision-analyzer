@@ -1,6 +1,6 @@
 # Edge Vision Analyzer — 双服务 API 契约
 
-状态：有效设计契约，全部端点待实现。维护责任：项目维护 Agent。更新日期：2026-11-23（北京时间）。依据：PATCH-001 至 PATCH-008；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准。
+状态：有效设计契约，全部端点待实现。维护责任：项目维护 Agent。更新日期：2026-11-23（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
 
 本轮仅初始化文档，不代表 API 已运行或完成验收。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
 
@@ -19,7 +19,7 @@
 | 方法 | 路径 | 计划里程碑 | 契约 |
 | --- | --- | --- | --- |
 | GET | `/api/v1/health` | `v0.1-oculus` | 存活、版本、时长、节点线程及 LLM/Storage 连通状态 |
-| GET | `/api/v1/stats` | `v0.1-oculus` | FPS、跳过率、耗时、丢帧及 RSS |
+| GET | `/api/v1/stats` | `v0.1-oculus` | FPS、跳过率、耗时、丢帧、RSS 及可选 SoC 温度 |
 | GET | `/api/v1/config` | `v0.1-oculus` | 读取当前生效配置 |
 | PATCH | `/api/v1/config` | `v0.2-discern`，存储开关于 `v0.3-nous` 接入 | 原子热更新检测/LLM/Storage 五项字段 |
 | POST | `/api/v1/source/switch` | `v0.1-oculus` | 切换手机流/本地文件；失败保留原源 |
@@ -88,11 +88,14 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
   "avg_infer_ms": 84.5,
   "avg_llm_latency_ms": 6210.0,
   "dropped_frames": 12,
-  "rss_memory_mb": 142.6
+  "rss_memory_mb": 142.6,
+  "soc_temp_c": 62.5
 }
 ```
 
 保留原统计中无冲突的平均 LLM 耗时和累计丢帧指标。未启用或尚无样本的阶段指标返回 0。无状态边缘节点 RSS 目标严格 **小于 150MB**；实际超限仍须如实报告测量值。
+
+可选字段 `soc_temp_c` 为可空数字，单位摄氏度。读取 Linux `/sys/class/thermal/thermal_zone0/temp` 的毫摄氏度值并除以 1000，例如 62500 对应 `62.5`；读取或解析失败返回 `null`，不使用 0 代替错误。该值仅供压测观测，不触发限频、停机或其他温控动作。当前仍为待实现契约。
 
 ## 3. 边缘配置读取与热更新
 
@@ -187,7 +190,22 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 
 全部字段必填；LLM 关闭、超时或失败时 `llm_summary` 为空字符串，不影响后续存储。`image_base64` 是同一份未经 OSD 绘制的干净 JPEG 的 Base64 原文，不带 Data URI 前缀。框坐标归一化至 `[0,1]`，置信度为 `[0,1]`，目标框内 `class_id` 可选。
 
-服务端从 `timestamp_ms`（Unix 毫秒）计算 **UTC 日期**。该示例对应 `2026-11-23`，图片写入 `cloud-storage/storage/images/2026-11-23/evt_1795412000_1.jpg`，SQLite 写入 `cloud-storage/storage/events.db`。`image_rel_path` 以 `storage/` 为根，存为 `images/2026-11-23/evt_1795412000_1.jpg`；`targets` 序列化为 `targets_json`。完整列定义与索引见 [schema.sql](../cloud-storage/schema.sql)，不在此重复维护建表 SQL。
+为处理魔百盒尚未对时的事件，服务端按以下待实现契约确定一次 **有效 `timestamp_ms`**：
+
+- 入站字段必填，必须是非负 `int64` 整数；`0` 是合法输入。缺失、负值、字符串、非整数、布尔值或超出 `int64` 范围返回 400，不作为未对时兜底。
+- 对合法输入，若 `timestamp_ms < 1735689600000`（即早于 **2025-01-01T00:00:00Z**），使用联想 PC 接收本次请求时取得的当前 Unix 毫秒；该接收时间只取一次。晚于 `9999-12-31T23:59:59.999Z`、无法生成四位年份图片目录的合法整数也使用同一兜底。
+- 若时间处于 `2025-01-01T00:00:00Z` 至 `9999-12-31T23:59:59.999Z` 范围内（含两端），保留调用方时间。
+- 选定的同一个有效时间同时用于 SQLite `timestamp_ms`、历史列表返回与排序，以及图片文件夹的 UTC 日期；不能在各步骤分别取当前时间。`event_id` 和其他事件字段保持原值。
+
+下面仅为规则示例，假设 PC 接收时间为 `1795412000123`，不代表已运行服务：
+
+| 入站 `timestamp_ms` | 有效 `timestamp_ms` | 图片 UTC 日期 |
+| --- | --- | --- |
+| `0` | `1795412000123` | `2026-11-23` |
+| `1735689599999` | `1795412000123` | `2026-11-23` |
+| `1735689600000` | `1735689600000` | `2025-01-01` |
+
+上方正常请求示例的时间 `1795412000123` 保持不变，对应 `2026-11-23`。图片写入 `cloud-storage/storage/images/2026-11-23/evt_1795412000_1.jpg`，SQLite 写入 `cloud-storage/storage/events.db`。`image_rel_path` 以 `storage/` 为根，存为 `images/2026-11-23/evt_1795412000_1.jpg`；`targets` 序列化为 `targets_json`。完整列定义与索引见 [schema.sql](../cloud-storage/schema.sql)，不在此重复维护建表 SQL。
 
 图片和数据库记录均写入成功后返回 **201 Created**：
 
@@ -203,7 +221,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 
 ### 5.3 分页查询
 
-`GET :8090/api/v1/events?limit=20&offset=0`：`limit` 默认 20、范围 1..100；`offset` 默认 0、为非负整数。非法值返回 400。按 `timestamp_ms DESC` 排序，同毫秒以 `event_id DESC` 稳定排序。
+`GET :8090/api/v1/events?limit=20&offset=0`：`limit` 默认 20、范围 1..100；`offset` 默认 0、为非负整数。非法值返回 400。按入库时已经确定的有效 `timestamp_ms DESC` 排序，同毫秒以 `event_id DESC` 稳定排序。
 
 ```json
 {
@@ -229,11 +247,11 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 }
 ```
 
-`total` 是数据库全部事件数，不受分页影响。`targets` 从 `targets_json` 解析；响应不包含 Base64 图片、内部 `image_rel_path` 或宿主机绝对路径。`image_url` 是相对 **cloud-storage** 地址的资源 URL，不能拼到边缘或 LLM 地址上。`created_at` 是 SQLite 自动生成的 UTC 入库时间，与事件发生时间 `timestamp_ms` 分开。
+`total` 是数据库全部事件数，不受分页影响。`targets` 从 `targets_json` 解析；响应不包含 Base64 图片、内部 `image_rel_path` 或宿主机绝对路径。`image_url` 是相对 **cloud-storage** 地址的资源 URL，不能拼到边缘或 LLM 地址上。历史列表的 `timestamp_ms` 是入库时已确定的有效时间，图片 URL 的日期来自同一个值。`created_at` 是 SQLite 自动生成的 UTC 入库时间，与这个有效事件时间分开。
 
 ### 5.4 读取历史图片
 
-`GET :8090/api/v1/images/{date}/{filename}` 返回 `200 Content-Type: image/jpeg` 和未经 OSD 绘制的干净抓拍。`date` 必须为实际 UTC 日历日期 `YYYY-MM-DD`，`filename` 只能是合法 `<event_id>.jpg`。服务端只在 `cloud-storage/storage/images/` 根目录下解析；拒绝路径分隔符、`..`、编码绕过和越出根目录的最终路径。非法路径返回 400，图片不存在返回 404，均采用统一 Error。
+`GET :8090/api/v1/images/{date}/{filename}` 返回 `200 Content-Type: image/jpeg` 和未经 OSD 绘制的干净抓拍。`date` 来自入库时选定的有效 `timestamp_ms`，必须为实际 UTC 日历日期 `YYYY-MM-DD`；`filename` 只能是合法 `<event_id>.jpg`。服务端只在 `cloud-storage/storage/images/` 根目录下解析；拒绝路径分隔符、`..`、编码绕过和越出根目录的最终路径。非法路径返回 400，图片不存在返回 404，均采用统一 Error。
 
 ### 5.5 接收结构化日志
 

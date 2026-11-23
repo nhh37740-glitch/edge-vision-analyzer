@@ -3,8 +3,8 @@
 ## 冷启动必读
 在写代码前，按顺序阅读本文件、`docs/architecture.md`、`docs/api.md`、`docs/roadmap.md`、`config/config.example.json`；接口机器契约见 `docs/openapi.yaml`，排障记录见 [docs/troubleshooting.md](docs/troubleshooting.md)。这些仓库文件是接力依据，不依赖聊天记录。执行范围以用户最新指令为准。
 
-## 0. 初始化与接力边界（PATCH-001 至 PATCH-008）
-- PATCH-003 的无状态边缘与 PC 存储分工有效。PATCH-004/005 补充协作模板、GitHub Actions 和构建契约。PATCH-006 规定踩坑分流。PATCH-007 更新局域网运行、资源释放和中文协作约定。PATCH-008 补充边缘日志的内存留存与 PC 备份。
+## 0. 初始化与接力边界（PATCH-001 至 PATCH-009）
+- PATCH-003 的无状态边缘与 PC 存储分工有效。PATCH-004/005 补充协作模板、GitHub Actions 和构建契约。PATCH-006 规定踩坑分流。PATCH-007 更新局域网运行、资源释放和中文协作约定。PATCH-008 补充边缘日志备份。PATCH-009 登记部署脚本、对时、硬件限制和温度观测。
 - 初始化交付为文档、配置和骨架。C++ 与 Python 服务实现、依赖工具链、实际单测和部署留待后续开发。当前只核验工作流和文件结构，初始化门禁允许空模块通过。发版前必须具备可全量构建和测试的源文件与打包输入。
 - 初始化文档和骨架通过绑定 Issue 的 PR 走 Squash 合并。合并后快进同步 `feature/capture`，核对远端 `main` 与该分支后停止。接手联想宿主机的 Agent 在收到后续开发指令后再实施业务功能。
 
@@ -24,6 +24,12 @@
 - `GenAiWorker` 向联想 PC `:8090` 提交图片和结构化结果后，无论成功或失败，立即释放帧引用及 JPEG／Base64 缓冲。关闭存储时在当前处理步骤结束后释放。魔百盒不缓存失败结果，不积压重试。
 - 魔百盒程序只向 `stdout/stderr` 写日志，由 systemd 接管。禁止程序把日志文件写到魔百盒磁盘。`deploy/journald-edge.conf` 仅使用运行时 Journal，`deploy/fluent-bit.conf` 将该服务的日志独立转发至联想 PC。模板和容量边界见 [架构文档](docs/architecture.md)。
 - `deploy/edge-vision.service` 使用 `MemoryMax=300M`、`Restart=always` 兜底。日常常驻 RSS 目标仍为小于 150 MB。单元配置属于部署模板，须在目标机验收后使用。
+
+### 部署与硬件基线（PATCH-009）
+
+- `scripts/deploy_to_box.sh` 和 `scripts/start_pc_services.sh` 当前仅为带注释的占位，后续每个脚本不得超过 50 行。魔百盒部署按“对时、打印系统与库版本、发包、重启、探活、输出最近 20 行服务日志”执行。启动或探活失败必须返回非零状态。联想 PC 启动脚本分别探活 `:8080` 和 `:8090`。
+- 部署前用联想 PC 当前时间给魔百盒对时。边缘事件时间异常时，PC 以服务端时间统一入库和计算图片日期目录。阈值和 `soc_temp_c` 温度字段见 [API 契约](docs/api.md)，温度只用于观测压测，不参与温控调度。
+- 发热降频、glibc 与 FFmpeg 版本对齐见 [踩坑记录](docs/troubleshooting.md)。部署只打印排障所需版本，不新增反复校验环境的脚本。
 
 ## 2. 严格禁止事项（防过度防御与过度验证）
 必须遵守“够用即止”的工程原则，严禁出现以下行为：

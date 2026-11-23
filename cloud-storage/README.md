@@ -15,7 +15,8 @@ python -m uvicorn server:app --host 0.0.0.0 --port 8090
 
 ## 文件与 SQLite 契约
 
-- `storage/images/YYYY-MM-DD/<event_id>.jpg` 存储 Base64 解码后未经 OSD 的 JPEG。`image_rel_path` 以 `storage/` 为根，格式为 `images/YYYY-MM-DD/<event_id>.jpg`。日期从事件 `timestamp_ms` 按 UTC 取日。
+- `storage/images/YYYY-MM-DD/<event_id>.jpg` 存储 Base64 解码后未经 OSD 的 JPEG。`image_rel_path` 以 `storage/` 为根，格式为 `images/YYYY-MM-DD/<event_id>.jpg`。日期从入库前已确定的有效 `timestamp_ms` 按 UTC 取日。
+- 事件时间采用 [API 的 PATCH-009 时间兜底契约](../docs/api.md#52-保存事件与干净抓拍)：合法非负 `int64` 输入早于 `1735689600000`（2025-01-01T00:00:00Z）时，改用 PC 接收该请求时只取一次的当前 Unix 毫秒；晚于 `9999-12-31T23:59:59.999Z` 的合法整数也使用该兜底，范围内（含两端）保留原值。SQLite `timestamp_ms`、历史列表返回/排序和图片 UTC 日期统一使用这个有效时间。`0` 可兜底，缺失、负值及错误类型仍返回 400。此规则待实现，DDL 不变。
 - `storage/events.db` 的 `events` 表以 `event_id` 为主键，保存 `frame_id`、`timestamp_ms`、最高分标签和置信度、`targets_json`、可选 `llm_summary` 与 `llm_latency_ms`、`image_rel_path` 及自动生成的 `created_at`。`idx_events_timestamp` 支持按事件时间倒序查询。精确定义见 [schema.sql](schema.sql)。
 - 预计由 `server.py` 初始化目录和表。成功写入图片和对应数据库记录后才返回 201。历史查询返回 `image_url`，调用方用其读取 JPEG。
 - `storage/logs/YYYY-MM-DD.log` 按联想 PC 接收时的 UTC 日期追加日志，每条是独立的 JSON 行。`POST /api/v1/logs` 接收 Fluent Bit 批次，`GET /api/v1/logs` 返回所选日期的最近若干行。

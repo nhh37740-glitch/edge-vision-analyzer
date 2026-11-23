@@ -1,6 +1,6 @@
 # Edge Vision Analyzer 架构
 
-状态：有效设计契约，全部业务能力待实现。维护：项目接力 Agent；日期：2026-11-23（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集与 PC 日志落盘／查询。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
+状态：有效设计契约，全部业务能力待实现。维护：项目接力 Agent；日期：2026-11-23（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集及 PC 日志落盘／查询，PATCH-009 补充部署对时与温度观测。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
 
 ## 1. 物理拓扑与三个服务入口
 
@@ -202,6 +202,12 @@ systemd-journald（默认 namespace）
 
 ### 10.2 PC 接收、存储与查询
 
-未来 PC `cloud-storage :8090` 的 `POST /api/v1/logs` 接收 Fluent Bit JSON 数组，将每个记录序列化为一行紧凑 JSON，追加至 `cloud-storage/storage/logs/YYYY-MM-DD.log`。文件日期按 **PC 接收到批次时的 UTC 日期** 计算，区别于事件图片按事件 `timestamp_ms` 取日；日志文件不写魔百盒，也不插入 `events` 表。运行日志与图片／数据库一起处于 Git 忽略的 `cloud-storage/storage/` 下。
+未来 PC `cloud-storage :8090` 的 `POST /api/v1/logs` 接收 Fluent Bit JSON 数组，将每个记录序列化为一行紧凑 JSON，追加至 `cloud-storage/storage/logs/YYYY-MM-DD.log`。文件日期按 **PC 接收到批次时的 UTC 日期** 计算，区别于事件图片按入库生效的 `timestamp_ms` 取日（异常时间按 API 契约回退至 PC 当前时间）；日志文件不写魔百盒，也不插入 `events` 表。运行日志与图片／数据库一起处于 Git 忽略的 `cloud-storage/storage/` 下。
 
 `GET /api/v1/logs` 返回 PC 上指定 UTC 日期文件的最后 N 行，可用当天日期读取当日日志；不会向魔百盒回查。`date`、`tail` 参数、行数范围、返回媒体类型、空文件／缺失文件和错误语义统一以 [api.md](api.md) / [OpenAPI](openapi.yaml) 为准，不在架构另立一套响应。两项接口均属于后续 Python 服务实现，本轮只维护契约与模板。
+
+## 部署前对时与探活（PATCH-009）
+
+魔百盒没有可维持时钟的 RTC 电池时，离线重启可能丢失正确时间。部署流程先通过 SSH 用联想 PC 的系统时间对时，再重启边缘服务。若仍收到异常的事件时间，PC 存储服务按 [API 契约](api.md) 以接收时刻作为事件时间戳，并据此选择图片日期目录。
+
+[scripts/deploy_to_box.sh](../scripts/deploy_to_box.sh) 和 [scripts/start_pc_services.sh](../scripts/start_pc_services.sh) 是后续部署与启动说明的占位。目标机的发行版和运行库基线在部署前读取。持续推理时可从边缘统计观察 SoC 温度，手动处理实测过热；已知限制见 [踩坑记录](troubleshooting.md)。
