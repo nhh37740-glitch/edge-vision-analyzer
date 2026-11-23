@@ -336,7 +336,7 @@ class BaseNode {
 
 **全部交付件：**
 
-- 实现 [start_pc_services.sh](../scripts/start_pc_services.sh)，在联想 PC 启动并分别探活 `llama-server :8080` 与 `cloud-storage :8090`。脚本最多 50 行，本轮已提交注释占位。
+- [start_pc_services.sh](../scripts/start_pc_services.sh) 已实现：从环境变量读取模型路径与端口，后台启动 `llama-server :8080` 与 `cloud-storage :8090`，记录 PID、写临时日志，并循环探活两个 `/health`。任一启动或探活失败返回非零并提示停止命令；真实模型联调待联想 PC 执行。
 - `src/transport/event_tracker_node.hpp` / `.cpp`：仅当前活跃事件的瞬时聚合状态和触发节流。（已实现并接入运行入口）
 - `src/transport/jpeg_base64.hpp` / `.cpp`：干净 JPEG 一次内存编码与 Base64 复用。（已实现）
 - `src/transport/llm_selection.hpp` / `.cpp`：按配置档位、可用模型列表、显存与读取超时选择 LLM 模型别名，不可用时回退基础 `llm.model`；`tests/test_llm_selection.cpp` 覆盖 4 个离线用例。（已实现）

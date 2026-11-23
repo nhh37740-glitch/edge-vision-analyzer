@@ -69,6 +69,19 @@ cmake --build build-arm64 --parallel 2
 
 本机构建基线（ubuntu-24.04／MSYS2 UCRT64）：CMake 3.31.6、Ninja 1.13.2、GCC 13.3.0、GoogleTest 1.14.0；FFmpeg 库版本为 libavformat 60.16.100、libavcodec 60.31.102、libavutil 58.29.100、libswscale 7.5.100；NCNN 固定 Release Tag `20261020`（BSD-3-Clause），由 CMake FetchContent 首次配置时下载并编译。常规 PR 的 `ci-gate` 不运行 C++ 构建，C++ 变更在提交前本地完成构建与 CTest；aarch64 交叉编译和完整测试只在 `v*` Tag 的 Release 工作流执行。测试不下载模型、不等待真实设备或推理。
 
+## PC 双服务启动
+
+`scripts/start_pc_services.sh` 在联想 PC 后台启动两个独立进程：`llama-server`（默认 `:8080`）与 `cloud-storage`（默认 `:8090`）。模型与多模态投影路径必须由环境变量提供，脚本不内置本机路径：
+
+```sh
+export LLM_MODEL=/path/to/model.gguf
+export LLM_MMPROJ=/path/to/mmproj.gguf
+# 可选：LLM_PORT、STORAGE_PORT、LLM_ALIAS（默认 vlm-local）、LOG_DIR、PROBE_TRIES
+bash scripts/start_pc_services.sh
+```
+
+脚本把日志写入 `mktemp -d` 生成的临时目录，就绪时打印两个 PID 与日志路径；只有 `http://127.0.0.1:8080/health` 与 `http://127.0.0.1:8090/health` 都通过才报告就绪。缺少 `llama-server`、`uvicorn` 或 `curl` 时提示安装方式并返回非零。启动或探活失败时打印对应日志尾部，并提示用 `kill <PID>` 停止已启动的进程。脚本不下载模型、不读取 `config/config.local.json`，日志位于临时目录且不提交。
+
 ## 魔百盒部署（脚本与模板已就绪，真机验收待执行）
 
 `scripts/deploy_to_box.sh` 按“对时 → 打印系统与库版本 → 发包 → 重启 → 探活 → 输出最近 20 行日志”执行；任一步失败返回非零并打印 `journalctl -u "$SERVICE" -n 20 --no-pager`。模板与脚本不等于已部署：真机验收待执行，当前不声称魔百盒已运行本服务或日志已由 Fluent Bit 接管。
