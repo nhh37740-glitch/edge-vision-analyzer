@@ -85,6 +85,15 @@ TEST(BaseNode, StopJoinsWorker) {
   EXPECT_EQ(node->state(), edge::NodeState::kStopped);
 }
 
+TEST(BaseNode, StartAfterStopIsNoOp) {
+  auto node = std::make_shared<CountingNode>("node", nullptr);
+  node->start();
+  node->stop();
+  node->start();
+  EXPECT_FALSE(node->running());
+  EXPECT_EQ(node->state(), edge::NodeState::kStopped);
+}
+
 TEST(Config, LoadsExampleAndSerializesEverySection) {
   const auto config = edge::Config::load(EDGE_CONFIG_EXAMPLE);
   EXPECT_EQ(config.input.width, 640);

@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -16,6 +17,8 @@ namespace edge {
 // Base class for every frame-processing stage. Each node owns one worker
 // thread and one fixed-capacity input queue. Nodes are chained with
 // attach_next() before start(); a node never spawns ad-hoc threads.
+// A node has one lifecycle: start() after stop() is a no-op because the
+// input queue stays closed.
 class BaseNode {
  public:
   explicit BaseNode(std::string name, std::size_t queue_capacity = 2);
@@ -44,9 +47,12 @@ class BaseNode {
   std::string name_;
   BoundedQueue<FrameMetaPtr> input_queue_;
   std::vector<std::shared_ptr<BaseNode>> next_nodes_;
+  std::mutex next_mutex_;
+  std::mutex lifecycle_mutex_;
   std::thread worker_;
   std::atomic<bool> running_{false};
   std::atomic<NodeState> state_{NodeState::kStopped};
+  bool stopped_once_ = false;
 };
 
 }  // namespace edge
