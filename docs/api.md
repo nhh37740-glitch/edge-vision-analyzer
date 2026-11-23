@@ -1,6 +1,6 @@
 # Edge Vision Analyzer — 双服务 API 契约
 
-状态：有效设计契约；`v0.1-oculus` 的 health、stats、config 读取与 source-switch 四个操作已实现并在本机回环验证，PATCH config、快照、实时流与云存储端点待实现。维护责任：项目维护 Agent。更新日期：2026-11-23（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
+状态：有效设计契约；`v0.1-oculus` 的 health、stats、config 读取与 source-switch 四个操作已实现并在本机回环验证，仅 PATCH config 待实现。维护责任：项目维护 Agent。更新日期：2026-11-24（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
 
 本轮不宣称真机验收；已实现范围仅指本机回环验证。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
 
@@ -65,17 +65,17 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
     {"name": "CaptureNode", "state": "running"}
   ],
   "llm": {
-    "status": "unknown",
+    "status": "reachable",
     "endpoint": "http://192.168.10.10:8080/health"
   },
   "storage": {
-    "status": "unknown",
+    "status": "reachable",
     "endpoint": "http://192.168.10.10:8090/health"
   }
 }
 ```
 
-节点状态为 `starting/running/stopping/stopped/failed/not_enabled`。两个上游分别报告 `disabled/reachable/unreachable/unknown`。当前实现仅在 `CaptureNode` 失败时返回 200、`status: degraded`；LLM/Storage 的上游探活在 `v0.3-nous` 接入，接入前启用时报告 `unknown`，关闭时报告 `disabled`，不会因上游不可达单独触发 `degraded`。探活只检查连通状态，不能触发真实多模态生成或存储写入，也不能让边缘存活探针等待推理。
+节点状态为 `starting/running/stopping/stopped/failed/not_enabled`。两个上游分别报告 `disabled/reachable/unreachable/unknown`。只有 `CaptureNode` 失败时边缘返回 200、`status: degraded`；LLM/Storage 的上游状态由后台探活线程维护：启用时立即探测一次并按约 2 秒间隔刷新，单次 `GET <base>/health` 的超时上限为 500ms，200 报告 `reachable`，连接失败、超时或非 200 报告 `unreachable`，首轮完成前短暂报告 `unknown`，关闭时报告 `disabled`。探活结果只缓存并更新对应字段，不改变边缘的 200 与 `status`；health 请求只读取缓存，不等待上游；探活只发送 GET，不触发真实多模态生成或存储写入。上述行为已在本机回环与离线用例验证，未做真机验收。
 
 `GET :8081/api/v1/stats` 成功示例：
 

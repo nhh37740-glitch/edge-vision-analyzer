@@ -95,6 +95,74 @@ Config api_config() {
   return config;
 }
 
+std::string upstream_endpoint(int port, const std::string& path) {
+  return "http://127.0.0.1:" + std::to_string(port) + path;
+}
+
+// Loopback stand-in for llama-server/cloud-storage health endpoints. Binding an
+// ephemeral loopback port keeps the test offline and avoids the Windows
+// firewall prompt a wildcard listener would raise.
+class MockUpstream {
+ public:
+  explicit MockUpstream(int status = 200, int delay_ms = 0)
+      : status_(status), delay_ms_(delay_ms) {
+    server_.Get("/health", [this](const httplib::Request&, httplib::Response& response) {
+      if (delay_ms_ > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms_));
+      }
+      response.status = status_;
+      response.set_content("{}", "application/json");
+    });
+  }
+
+  ~MockUpstream() { stop(); }
+
+  bool start() {
+    port_ = server_.bind_to_any_port("127.0.0.1");
+    if (port_ <= 0) {
+      return false;
+    }
+    thread_ = std::thread([this] { server_.listen_after_bind(); });
+    server_.wait_until_ready();
+    return true;
+  }
+
+  void stop() {
+    server_.stop();
+    if (thread_.joinable()) {
+      thread_.join();
+    }
+  }
+
+  int port() const { return port_; }
+
+ private:
+  httplib::Server server_;
+  std::thread thread_;
+  int port_ = 0;
+  int status_ = 200;
+  int delay_ms_ = 0;
+};
+
+// The probe runs in the background; poll the cached health response until the
+// first cycle has published a result.
+bool wait_for_upstream_status(httplib::Client& client, const char* upstream,
+                              const std::string& expected) {
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+  while (std::chrono::steady_clock::now() < deadline) {
+    const auto response = client.Get("/api/v1/health");
+    if (response && response->status == 200) {
+      const nlohmann::json body = nlohmann::json::parse(response->body, nullptr, false);
+      if (!body.is_discarded() && body.contains(upstream) &&
+          body[upstream].value("status", "") == expected) {
+        return true;
+      }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  return false;
+}
+
 TEST(Api, HealthReportsCaptureStateAndDerivedEndpoints) {
   auto source_control = std::make_shared<FakeSourceControl>();
   auto metrics = std::make_shared<Metrics>();
@@ -119,6 +187,116 @@ TEST(Api, HealthReportsCaptureStateAndDerivedEndpoints) {
   EXPECT_EQ(body["llm"].value("endpoint", ""), "http://127.0.0.1:8080/health");
   EXPECT_EQ(body["storage"].value("status", ""), "disabled");
   EXPECT_EQ(body["storage"].value("endpoint", ""), "http://127.0.0.1:8090/health");
+}
+
+TEST(Api, HealthProbeReportsReachableUpstreams) {
+  MockUpstream upstream;
+  ASSERT_TRUE(upstream.start()) << "cannot bind the mock upstream";
+
+  Config config = api_config();
+  config.llm.enabled = true;
+  config.llm.endpoint = upstream_endpoint(upstream.port(), "/v1/chat/completions");
+  config.storage.enabled = true;
+  config.storage.endpoint = upstream_endpoint(upstream.port(), "/api/v1/events");
+
+  auto source_control = std::make_shared<FakeSourceControl>();
+  auto metrics = std::make_shared<Metrics>();
+  ApiServer api(config, source_control, metrics, "127.0.0.1");
+
+  std::string error;
+  ASSERT_TRUE(api.start(error)) << error;
+  httplib::Client client("127.0.0.1", api.port());
+  client.set_read_timeout(1, 0);
+
+  EXPECT_TRUE(wait_for_upstream_status(client, "llm", "reachable"));
+  EXPECT_TRUE(wait_for_upstream_status(client, "storage", "reachable"));
+
+  const auto response = client.Get("/api/v1/health");
+  ASSERT_TRUE(response);
+  EXPECT_EQ(response->status, 200);
+  const nlohmann::json body = nlohmann::json::parse(response->body);
+  EXPECT_EQ(body.value("status", ""), "ok");
+  EXPECT_EQ(body["llm"].value("status", ""), "reachable");
+  EXPECT_EQ(body["storage"].value("status", ""), "reachable");
+}
+
+TEST(Api, HealthProbeReportsUnreachableAndClosedUpstreams) {
+  MockUpstream unavailable(503);
+  ASSERT_TRUE(unavailable.start()) << "cannot bind the 503 mock upstream";
+
+  int closed_port = 0;
+  {
+    MockUpstream closed;
+    ASSERT_TRUE(closed.start()) << "cannot bind the mock upstream";
+    closed_port = closed.port();
+  }  // Listener stopped, so later connections are refused.
+
+  Config config = api_config();
+  config.llm.enabled = true;
+  config.llm.endpoint = upstream_endpoint(closed_port, "/v1/chat/completions");
+  config.storage.enabled = true;
+  config.storage.endpoint = upstream_endpoint(unavailable.port(), "/api/v1/events");
+
+  auto source_control = std::make_shared<FakeSourceControl>();
+  auto metrics = std::make_shared<Metrics>();
+  ApiServer api(config, source_control, metrics, "127.0.0.1");
+
+  std::string error;
+  ASSERT_TRUE(api.start(error)) << error;
+  httplib::Client client("127.0.0.1", api.port());
+  client.set_read_timeout(1, 0);
+
+  EXPECT_TRUE(wait_for_upstream_status(client, "llm", "unreachable"));
+  EXPECT_TRUE(wait_for_upstream_status(client, "storage", "unreachable"));
+
+  const auto response = client.Get("/api/v1/health");
+  ASSERT_TRUE(response);
+  EXPECT_EQ(response->status, 200);
+  const nlohmann::json body = nlohmann::json::parse(response->body);
+  EXPECT_EQ(body.value("status", ""), "ok");
+  EXPECT_EQ(body["llm"].value("status", ""), "unreachable");
+  EXPECT_EQ(body["storage"].value("status", ""), "unreachable");
+}
+
+TEST(Api, SlowUpstreamProbeDoesNotBlockHealth) {
+  MockUpstream slow(200, 800);
+  ASSERT_TRUE(slow.start()) << "cannot bind the slow mock upstream";
+
+  Config config = api_config();
+  config.llm.enabled = true;
+  config.llm.endpoint = upstream_endpoint(slow.port(), "/v1/chat/completions");
+
+  auto source_control = std::make_shared<FakeSourceControl>();
+  auto metrics = std::make_shared<Metrics>();
+  ApiServer api(config, source_control, metrics, "127.0.0.1");
+
+  std::string error;
+  ASSERT_TRUE(api.start(error)) << error;
+  httplib::Client client("127.0.0.1", api.port());
+  client.set_connection_timeout(1, 0);
+  client.set_read_timeout(1, 0);
+
+  // Let the background probe enter the slow upstream request.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  const auto begin = std::chrono::steady_clock::now();
+  const auto response = client.Get("/api/v1/health");
+  const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - begin);
+  ASSERT_TRUE(response);
+  EXPECT_EQ(response->status, 200);
+  EXPECT_LT(elapsed.count(), 300) << "health waited on the slow upstream probe";
+
+  // The 500ms probe timeout marks the upstream unreachable while the edge
+  // itself stays healthy.
+  EXPECT_TRUE(wait_for_upstream_status(client, "llm", "unreachable"));
+  const auto after = client.Get("/api/v1/health");
+  ASSERT_TRUE(after);
+  EXPECT_EQ(after->status, 200);
+  const nlohmann::json body = nlohmann::json::parse(after->body);
+  EXPECT_EQ(body.value("status", ""), "ok");
+  EXPECT_EQ(body["llm"].value("status", ""), "unreachable");
+  EXPECT_EQ(body["storage"].value("status", ""), "disabled");
 }
 
 TEST(Api, SwitchRejectsInvalidRequestsAndUpdatesConfigOnSuccess) {

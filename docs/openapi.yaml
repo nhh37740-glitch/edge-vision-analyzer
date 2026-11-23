@@ -2,11 +2,11 @@ openapi: 3.0.3
 info:
   title: Edge Vision Analyzer 边缘与云存储 API
   version: 0.1.0
-  description: PATCH-003/007/008/009 两服务设计契约。v0.1-oculus 的 health、stats、config 读取与 source-switch 已实现（本机回环与离线验证），其余端点待实现；上游探活与 degraded 在 v0.3-nous 接入。服务仅在同一有线局域网通信；边缘:8081仅实时控制与流媒体，联想PC cloud-storage:8090保存历史事件、图片和接收日志，llama-server:8080仅提供本地推理。不接公有云服务。每个路径单独绑定servers，外部llama-server不在本OpenAPI
+  description: PATCH-003/007/008/009 两服务设计契约。v0.1-oculus 的 health、stats、config 读取与 source-switch 已实现（本机回环与离线验证），仅 PATCH config 待实现；LLM/Storage 上游探活已实现，边缘 degraded 仍只在 CaptureNode 失败时出现。服务仅在同一有线局域网通信；边缘:8081仅实时控制与流媒体，联想PC cloud-storage:8090保存历史事件、图片和接收日志，llama-server:8080仅提供本地推理。不接公有云服务。每个路径单独绑定servers，外部llama-server不在本OpenAPI
     paths中。
 tags:
 - name: v0.1-oculus
-  description: 采集与基础控制面，已实现（本机回环与离线验证）；上游探活与 degraded 于 v0.3-nous 接入。
+  description: 采集与基础控制面，已实现（本机回环与离线验证）；LLM/Storage 上游探活已实现，degraded 仍只在 CaptureNode 失败时出现。
 - name: v0.2-discern
   description: 检测与配置热更新，待实现。
 - name: v0.3-nous
@@ -36,7 +36,7 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/Unavailable'
-      description: 检查已有节点状态；当前仅 CaptureNode 失败时返回200/degraded。LLM与Storage的上游探活于v0.3-nous接入，接入前启用时报告unknown、关闭时报告disabled，不因上游不可达单独触发degraded，也不触发真实推理或存储写入。
+      description: 检查已有节点状态；仅 CaptureNode 失败时返回200/degraded。LLM与Storage启用时由后台线程立即探测并按约2秒间隔刷新，单次GET <base>/health超时上限500ms：成功报告reachable，失败、超时或非200报告unreachable，首轮完成前短暂报告unknown，关闭时报告disabled。health请求只读缓存、不等待上游，上游不可达不改变边缘200/status，也不触发真实推理或存储写入。
     servers:
     - url: http://192.168.10.11:8081
       description: 魔百盒边缘实时控制与流媒体；此路径只属于边缘端。
@@ -490,7 +490,7 @@ components:
       properties:
         status:
           type: string
-          description: 上游不可达不等于边缘进程死亡；不得在探活中等待真实生成。v0.3-nous 接入探活前，启用时报告 unknown，关闭时报告 disabled。
+          description: 上游不可达不等于边缘进程死亡；探活只发送GET且不等待真实生成。启用时立即探测一次并按约2秒间隔刷新，单次超时上限500ms；成功为reachable，失败、超时或非200为unreachable，首轮完成前短暂为unknown，关闭时为disabled。
           enum:
           - disabled
           - reachable
@@ -504,14 +504,14 @@ components:
       required:
       - status
       - endpoint
-      description: 单个上游的连通状态。v0.3-nous 接入探活前，LLM/Storage 启用时为 unknown、关闭时为 disabled；探活不触发实际生成或写入。
+      description: 单个上游的连通状态。由边缘后台探活线程缓存；探活不触发实际生成或写入，上游不可达不改变边缘自身的200与status。上述行为已在本机回环与离线用例验证，未做真机验收。
     Health:
       type: object
       additionalProperties: false
       properties:
         status:
           type: string
-          description: 当前仅 CaptureNode 失败时为 degraded，仍返回 200；上游探活于 v0.3-nous 接入，未接入时上游状态为 unknown/disabled。
+          description: 当前仅 CaptureNode 失败时为 degraded，仍返回 200；LLM/Storage 上游探活已实现，上游不可达只影响各自字段，不会单独触发 degraded。
           enum:
           - ok
           - degraded
