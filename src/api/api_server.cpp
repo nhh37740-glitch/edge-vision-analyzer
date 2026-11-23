@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <utility>
 
+#include "core/base_node.hpp"
 #include "core/build_info.hpp"
 #include "core/node_state.hpp"
 #include "core/source_control.hpp"
@@ -85,7 +86,10 @@ void ApiServer::configure_routes() {
 
   server_->Get("/api/v1/stats",
                [this](const httplib::Request&, httplib::Response& response) {
-                 set_json(response, metrics_->to_json());
+                 nlohmann::json stats = metrics_->to_json();
+                 stats["dropped_frames"] =
+                     metrics_->dropped_frames() + BaseNode::total_dropped_frames();
+                 set_json(response, stats);
                });
 
   server_->Get("/api/v1/config",

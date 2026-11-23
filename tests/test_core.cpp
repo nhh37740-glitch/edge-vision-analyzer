@@ -2,9 +2,11 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <future>
 #include <memory>
 #include <string>
+#include <thread>
 
 #include "common/config.hpp"
 #include "core/base_node.hpp"
@@ -38,6 +40,29 @@ class CountingNode : public BaseNode {
 
  private:
   std::promise<void>* done_;
+};
+
+// Keeps the worker busy inside process() so the input queue can be filled
+// deterministically from the test thread.
+class BlockingNode : public BaseNode {
+ public:
+  explicit BlockingNode(std::size_t capacity) : BaseNode("blocking", capacity) {}
+
+  void release() { released_.store(true); }
+  bool entered_process() const { return entered_.load(); }
+
+ protected:
+  FrameMetaPtr process(FrameMetaPtr meta) override {
+    entered_.store(true);
+    while (!released_.load()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return meta;
+  }
+
+ private:
+  std::atomic<bool> entered_{false};
+  std::atomic<bool> released_{false};
 };
 
 TEST(BoundedQueue, DropsOldestWhenFull) {
@@ -92,6 +117,35 @@ TEST(BaseNode, StartAfterStopIsNoOp) {
   node->start();
   EXPECT_FALSE(node->running());
   EXPECT_EQ(node->state(), edge::NodeState::kStopped);
+}
+
+TEST(BaseNode, CountsFramesDroppedByFullInputQueue) {
+  const std::uint64_t before = BaseNode::total_dropped_frames();
+  auto node = std::make_shared<BlockingNode>(1);
+  node->start();
+
+  auto first = std::make_shared<FrameMeta>();
+  first->frame_id = 1;
+  node->push(first);
+  for (int attempt = 0; attempt < 500 && !node->entered_process(); ++attempt) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_TRUE(node->entered_process());
+
+  // The worker holds the first frame, so the next push fills the capacity-1
+  // queue and the following push drops the oldest queued frame.
+  auto second = std::make_shared<FrameMeta>();
+  second->frame_id = 2;
+  node->push(second);
+  auto third = std::make_shared<FrameMeta>();
+  third->frame_id = 3;
+  node->push(third);
+
+  EXPECT_EQ(node->dropped_frames(), 1u);
+  EXPECT_EQ(BaseNode::total_dropped_frames() - before, 1u);
+
+  node->release();
+  node->stop();
 }
 
 TEST(Config, LoadsExampleAndSerializesEverySection) {
