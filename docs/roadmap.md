@@ -2,7 +2,7 @@
 
 状态：有效设计；全部业务能力待实现。更新日期：2026-11-23（北京时间）。
 
-本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-007。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.example.json](../config/config.example.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
+本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-008。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.example.json](../config/config.example.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
 
 ## 1. 当前执行边界与后续启动条件
 
@@ -123,7 +123,10 @@ edge-vision-analyzer/
 ├── scripts/
 │   ├── deploy_to_box.sh
 │   └── start_llama_server.sh
-├── deploy/edge-vision.service
+├── deploy/
+│   ├── edge-vision.service
+│   ├── journald-edge.conf
+│   └── fluent-bit.conf
 ├── cloud-storage/                      # 与 ARM64 构建解耦
 │   ├── README.md                       # 本轮契约与后续启动说明
 │   ├── requirements.txt                # fastapi / uvicorn / pydantic
@@ -295,7 +298,7 @@ private:
 - 更新边缘健康接口，分别报告 LLM `:8080` 与 Storage `:8090` 状态；在配置热更新中接入 `storage.enabled`。边缘 `:8081` 不提供历史事件列表。
 - `cloud-storage/server.py` 后续实现为联想 PC 独立 FastAPI + SQLite 进程，监听 `:8090`，与 `llama-server :8080` 和 C++ ARM64 构建解耦。
 - 完成 `cloud-storage/README.md` 的实际启动／运行说明，使用 `requirements.txt` 中 `fastapi`、`uvicorn`、`pydantic` 和 `schema.sql` 的表／索引契约；本轮已有契约和空占位不算服务实现。
-- PC 实现 `GET /health`、`POST /api/v1/events`、`GET /api/v1/events?limit=20&offset=0`、`GET /api/v1/images/{date}/{filename}`；完整语义以 [api](api.md) / [OpenAPI](openapi.yaml) 为准。
+- PC 实现健康、事件和图片接口，并接收和查询 `GET`／`POST /api/v1/logs`。接口语义和日志分日方式以 [api](api.md) / [OpenAPI](openapi.yaml) 为准。
 - `tests/test_transport.cpp`，3～5 个离线用例；后续 PC 服务另用临时目录和临时 SQLite 验证存储／分页，不依赖真实模型、私人影像或真实运行数据库。本轮不创建这些测试。
 
 **内部架构：**
@@ -337,6 +340,7 @@ FastAPI `POST /api/v1/events` 解码干净 JPEG，把图片写入 `cloud-storage
 2. 投递极小干净 JPEG 后得到 201，图片相对路径和元数据对应；读取图片能还原输入内容。
 3. 插入多条记录后分页、排序、`image_url` 和查询字段符合接口契约。
 4. 无效请求／缺失图片／重复事件 ID 按接口约定返回，未产生越界路径或不一致记录；使用临时目录，不操作真实数据库。
+5. 用临时目录验证 Fluent Bit JSON 数组写入日期日志，POST 返回 204，GET 只返回所选日期的末尾 N 行。
 
 后续真实联调分别记录 LLM 与 Storage 可达性、LLM 延迟、成功持久化事件／图片、历史查询和上游关闭时的视频稳定性。离线验证不替代真实服务联调；运行数据不得推送公共仓库。
 
@@ -350,7 +354,7 @@ FastAPI `POST /api/v1/events` 解码干净 JPEG，把图片写入 `cloud-storage
 - `src/streamer/stream_out_node.hpp` / `.cpp`。
 - `src/streamer/rtsp_pusher.hpp` / `.cpp`。
 - `src/main.cpp`：声明式 `BaseNode::attach_next()` 组装与 `SIGINT` / `SIGTERM` 优雅退出。
-- 在目标机验证已有 `deploy/edge-vision.service` 模板，并完成 `scripts/deploy_to_box.sh`。
+- 在目标机验证已有 `deploy/edge-vision.service`、`deploy/journald-edge.conf` 和 `deploy/fluent-bit.conf`，并完成 `scripts/deploy_to_box.sh`。
 - `ApiServer` 补充 `GET /api/v1/snapshot.jpg` 和 `GET /api/v1/stream`。
 - `tests/test_streamer.cpp`，3～5 个离线用例。
 - 完善 `README.md`：架构图、部署步骤、实测性能指标表；发布／部署／现场验收结果分别记录。

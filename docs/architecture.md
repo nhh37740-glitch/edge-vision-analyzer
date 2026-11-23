@@ -1,6 +1,6 @@
 # Edge Vision Analyzer 架构
 
-状态：有效设计契约，全部业务能力待实现。维护：项目接力 Agent；日期：2026-11-23（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护约束。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
+状态：有效设计契约，全部业务能力待实现。维护：项目接力 Agent；日期：2026-11-23（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集与 PC 日志落盘／查询。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
 
 ## 1. 物理拓扑与三个服务入口
 
@@ -85,6 +85,7 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 - SQLite 字段与索引正式依据为 `schema.sql`：`event_id` 主键，帧号、时间、最高置信度目标、目标 JSON、可空描述、LLM 耗时、图片相对路径和创建时间；不保存边缘历史队列。
 - 历史 `GET /api/v1/events?limit=20&offset=0` 与 `GET /api/v1/images/{date}/{filename}` 仅由 PC `:8090` 提供；日期目录、排序、分页、URL、错误及重复 ID 的语义统一见 [api](api.md) / [OpenAPI](openapi.yaml)。边缘 `:8081` 不代理历史接口。
 - `GET /health` 反映云存储数据库连通状态；边缘 `/api/v1/health` 分别反映 LLM 与 Storage 可达性，不把 LLM 存活等同于存储可用。
+- PATCH-008 的日志接收／查询也归 PC `:8090`，与事件图片和 SQLite 的职责分开；日志按第 10 节追加文件，不写事件表，不把采集器塞入视频处理线程。
 
 ## 5. 开源参考与本项目约束
 
@@ -108,7 +109,7 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 | 业务模块 | 专属技术范围 | 数据归属与功能结果 |
 | --- | --- | --- |
 | 边缘实时视觉 | `src/{core,common,capture,detector,transport,streamer,api}/` | 拥有实时帧、检测和活跃事件瞬时状态，提供控制与实时输出；通过契约投递 PC，不维护历史数据 |
-| PC 事件存储 | `cloud-storage/` | 独占图片文件、SQLite 数据库和历史查询；不导入／借用边缘 C++ 一级模块，不参与 ARM64 构建 |
+| PC 事件存储 | `cloud-storage/` | 独占图片、SQLite、日志文件及相应历史查询；不导入／借用边缘 C++ 一级模块，不参与 ARM64 构建 |
 
 后续每次修改仍须按 AGENTS 给出“业务模块 → 修改／新增的专属一级模块 → 用户功能结果”、文件范围和验收清单；框架、配置等技术目录的实现拆分须符合该独占规则，不以本表默认批准额外代码修改。`llama-server` 是独立外部服务依赖，不归属任何边缘一级模块。
 
@@ -125,7 +126,7 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 
 实时 MJPEG 仍只在观看或快照请求时编码，无请求时不编码；可选 RTSP 使用 `-preset ultrafast -tune zerolatency -b:v 500k`。Nous 的事件 JPEG 编码与实时 OSD 输出编码用途不同，不把两者混用。后续验收需包含关闭上游／超时降级、队列丢旧与释放、优雅退出及 RSS **<150MB**；指标以实测记录为准。
 
-初始化和既有工程骨架已交付，业务实现仍待联想宿主机接力。PATCH-007 本轮仅补充配置／文档与服务部署模板；不编写 C++／Python 服务实现、不创建或运行单元测试、不在本机编译、不实施部署。变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；本次契约合并、分支同步后停止，后续业务开发须取得新的指令。静态检查、工作流定义和部署模板均不等于业务构建或运行验收。
+初始化和既有工程骨架已交付，业务实现仍待联想宿主机接力。PATCH-007／008 本轮仅补充配置、接口文档与服务／日志部署模板；不编写 C++／Python 服务实现、不创建或运行单元测试、不在本机编译、不实施部署。变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；本次契约合并、分支同步后停止，后续业务开发须取得新的指令。静态检查、工作流定义和部署模板均不等于业务构建或运行验收。
 
 ## 8. 模块构建与链接边界（PATCH-005）
 
@@ -163,8 +164,44 @@ FFmpeg 原生拥有型资源统一用 `std::unique_ptr<T, 自定义 deleter>` �
 
 `av_frame_unref`／`av_packet_unref` 释放当前引用的数据缓冲，不替代对象最终 free；也不能在其他处理步骤仍需该数据时提前 unref。其他三类管理对象按自身会话生命周期释放，不把“处理后立即释放”误写为每帧重建所有上下文。RGB `FrameMeta` 与任务图像的独立所有权、节点有界队列仍遵守前文约束。
 
-应用日志只写 stdout／stderr，不在魔百盒创建业务日志文件，不加入定时删除日志、帧或缓存的外部清理脚本。服务模板 [edge-vision.service](../deploy/edge-vision.service) 将标准输出与错误交给 journal，具体 journal 存储策略由部署配置负责；模板未安装，当前不声称目标机已运行或日志已接管。
+应用日志只写 stdout／stderr，不在魔百盒创建业务日志文件，不加入定时删除日志、帧或缓存的外部清理脚本。服务模板 [edge-vision.service](../deploy/edge-vision.service) 将标准输出与错误交给 journal，内存存储与独立采集器按第 10 节部署契约接力；模板未安装，当前不声称目标机已运行或日志已接管。
 
 该模板采用工作目录 `/opt/edge-vision-analyzer`，规划启动命令为 `bin/edge-vision-analyzer --config /opt/edge-vision-analyzer/config/config.local.json`；`--config` 是后续程序必须实现并验收的 CLI 契约，当前没有业务程序可执行。安装文件和准备本地配置后，才在获准部署阶段启用服务。
 
 [`MemoryMax=300M`](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html) 是服务 cgroup 的 300 MiB 内存限制，无法在限制内回收时可能触发单元内 OOM 终止；它与业务目标 **RSS <150MB** 使用不同口径，不能替代业务内存优化或声称已经达到目标。[`Restart=always`](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html) 负责进程退出后的自动重启，仍受启动频率限制，显式停止服务时不会自动复起；它不是内存回收算法。RAII、有界队列、任务及时释放与 systemd 最后防线分别验收，不用杀进程或清理脚本代替资源管理。
+
+## 10. 内存日志采集与 PC 日志服务（PATCH-008）
+
+```text
+魔百盒 edge-vision.service
+    stdout / stderr
+        │ StandardOutput=journal / StandardError=journal
+        ▼
+systemd-journald（默认 namespace）
+    Storage=volatile；RuntimeMaxUse=20M，按归档文件回收
+        │ _SYSTEMD_UNIT=edge-vision.service
+        ▼
+独立 Fluent Bit systemd input
+    Mem_Buf_Limit=2MB；storage.type=memory；不落盘游标
+        │ HTTP JSON 数组；Retry_Limit=1
+        ▼
+联想 PC :8090/api/v1/logs
+    POST：按 PC 接收时刻的 UTC 日期追加日志文件
+    GET：读取指定 UTC 日期（含当日）日志的最后 N 行
+```
+
+日志采集独立于视频节点和 Nous 事件任务，不由 C++ 自写 HTTP 日志客户端、异步线程或本地轮转文件。Fluent Bit 只读取服务 `_SYSTEMD_UNIT=edge-vision.service` 的 journal 记录，不采集整机日志；记录保留 journal 的消息和结构化字段，HTTP `Format json` 以 JSON 数组批量发送。输入过滤方式以 [Systemd input 官方文档](https://docs.fluentbit.io/manual/data-pipeline/inputs/systemd) 为准，发送格式见 [HTTP output 官方文档](https://docs.fluentbit.io/manual/data-pipeline/outputs/http)。
+
+### 10.1 仅部署模板，尚未启用
+
+- [journald-edge.conf](../deploy/journald-edge.conf) 是未来默认 journal 的 drop-in 模板，安装目标为 `/etc/systemd/journald.conf.d/edge-vision.conf`。`[Journal] Storage=volatile` 使 journal 保存在 `/run/log/journal`，重启不保留；`RuntimeMaxUse=20M` 按 journal 文件空间回收，只删除归档文件，活跃文件及轮转粒度可能使实际占用超过 20M，不能称为严格的实时 20MB 硬限。该配置影响整机默认 namespace，不仅是 edge 服务；不用外部清理脚本补偿。[journald 官方语义](https://www.freedesktop.org/software/systemd/man/latest/journald.conf.html)
+- [fluent-bit.conf](../deploy/fluent-bit.conf) 是魔百盒上独立采集进程的配置模板；`Systemd_Filter _SYSTEMD_UNIT=edge-vision.service`、`Read_From_Tail On`、`Mem_Buf_Limit 2MB`、`storage.type memory`。不配置游标 SQLite DB、文件系统缓冲、磁盘积压或拒绝数据落盘。2MB 限制的是输入缓冲阈值，达到阈值后暂停该输入；单次写入可越过阈值，不能当作 Fluent Bit 总 RSS 保证。[内存缓冲](https://docs.fluentbit.io/manual/administration/buffering-and-storage)、[背压行为](https://docs.fluentbit.io/manual/administration/backpressure)
+- HTTP 输出使用示例 LAN 主机 `192.168.10.10`、端口 `8090`、URI `/api/v1/logs`、`Format json` 和 `Retry_Limit 1`。最多重试一次，耗尽后丢弃该批次；这是日志传输的有限重试，与 Nous 事件投递不重试的契约分开。重试可能带来重复日志，轮转、采集器重启或网络故障可能丢日志，不承诺必达或精确一次。[重试官方语义](https://docs.fluentbit.io/manual/administration/scheduling-and-retries)
+
+三个部署模板均未在目标机安装或运行。后续获准部署时核对 Armbian 的 systemd／cgroup、journal 读取权限、Fluent Bit 构建包含 systemd input，以及 PC 接收端实现；再验证日志只保留于边缘内存并能投递 PC。不能以模板静态核对代替目标机运行验证，也不把输入缓冲阈值当作任何进程的实测内存指标。
+
+### 10.2 PC 接收、存储与查询
+
+未来 PC `cloud-storage :8090` 的 `POST /api/v1/logs` 接收 Fluent Bit JSON 数组，将每个记录序列化为一行紧凑 JSON，追加至 `cloud-storage/storage/logs/YYYY-MM-DD.log`。文件日期按 **PC 接收到批次时的 UTC 日期** 计算，区别于事件图片按事件 `timestamp_ms` 取日；日志文件不写魔百盒，也不插入 `events` 表。运行日志与图片／数据库一起处于 Git 忽略的 `cloud-storage/storage/` 下。
+
+`GET /api/v1/logs` 返回 PC 上指定 UTC 日期文件的最后 N 行，可用当天日期读取当日日志；不会向魔百盒回查。`date`、`tail` 参数、行数范围、返回媒体类型、空文件／缺失文件和错误语义统一以 [api.md](api.md) / [OpenAPI](openapi.yaml) 为准，不在架构另立一套响应。两项接口均属于后续 Python 服务实现，本轮只维护契约与模板。

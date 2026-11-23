@@ -46,6 +46,8 @@ jobs:
           test -x staging/bin/edge-vision-analyzer
           install -D config/config.example.json staging/config/config.example.json
           install -D deploy/edge-vision.service staging/deploy/edge-vision.service
+          install -D deploy/journald-edge.conf staging/deploy/journald-edge.conf
+          install -D deploy/fluent-bit.conf staging/deploy/fluent-bit.conf
           archive="edge-vision-analyzer-${RELEASE_TAG}-arm64.tar.gz"
           tar -czf "$archive" -C staging .
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
