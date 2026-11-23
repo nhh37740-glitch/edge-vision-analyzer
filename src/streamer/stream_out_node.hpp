@@ -14,14 +14,20 @@
 
 namespace edge {
 
+class RtspPusher;
+
 // Encodes an OSD-annotated JPEG only while somebody is watching or a snapshot
-// was requested. Viewers and snapshot callers come from API threads while
-// process() runs on the node worker thread, so the demand state and the latest
-// JPEG pointer are guarded by one mutex. Slow clients only read the newest
-// image; the node never keeps per-client queues.
+// was requested. When an RtspPusher is injected (config.streamer.mode=rtsp),
+// every frame is also rendered with OSD into a worker-owned buffer and pushed
+// as RGB24; the shared source frame is never modified. Viewers and snapshot
+// callers come from API threads while process() runs on the node worker
+// thread, so the demand state and the latest JPEG pointer are guarded by one
+// mutex. Slow clients only read the newest image; the node never keeps
+// per-client queues.
 class StreamOutNode : public BaseNode {
  public:
-  explicit StreamOutNode(std::size_t queue_capacity = 2);
+  explicit StreamOutNode(std::size_t queue_capacity = 2,
+                         std::shared_ptr<RtspPusher> rtsp_pusher = nullptr);
   ~StreamOutNode() override;
 
   // Called by the MJPEG endpoint for each attached client.
@@ -54,7 +60,8 @@ class StreamOutNode : public BaseNode {
   FrameMetaPtr process(FrameMetaPtr meta) override;
 
  private:
-  void encode_and_publish(const FrameMeta& meta);
+  bool prepare_osd(const FrameMeta& meta);
+  void publish_jpeg(const FrameMeta& meta);
 
   mutable std::mutex mutex_;
   mutable std::condition_variable jpeg_cv_;
@@ -63,6 +70,7 @@ class StreamOutNode : public BaseNode {
   std::shared_ptr<const std::vector<std::uint8_t>> latest_jpeg_;
   std::uint64_t latest_jpeg_seq_ = 0;
   std::atomic<std::uint64_t> encoded_frames_{0};
+  std::shared_ptr<RtspPusher> rtsp_pusher_;
   std::vector<std::uint8_t> osd_buffer_;  // Worker thread only; reused per frame.
 };
 

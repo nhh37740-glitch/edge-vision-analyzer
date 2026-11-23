@@ -59,7 +59,7 @@ EventTrackerNode（仅当前活跃事件的瞬时聚合状态）
       │                └─2. storage.enabled 时 → PC cloud-storage :8090
       │                     同一 JPEG Base64 + 元数据 + 可选描述
       ▼
-StreamOutNode（独立 OSD 输出画面；按需 MJPEG / 可选 MediaMTX RTSP）
+StreamOutNode（独立 OSD 输出画面；按需 MJPEG；mode=rtsp 时 RGB24 推 MediaMTX）
       ▼
 ApiServer :8081（实时控制、指标、快照、流；不提供历史查询）
 
@@ -124,9 +124,9 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 | `v0.3-nous`（神思） | 瞬时事件聚合、可选推理／存储投递、PC 存储服务实现与历史查询 |
 | `v1.0-vox`（神谕之声） | OSD、视频输出和 systemd 交付 |
 
-实时 MJPEG 仍只在观看或快照请求时编码，无请求时不编码；可选 RTSP 使用 `-preset ultrafast -tune zerolatency -b:v 500k`。Nous 的事件 JPEG 编码与实时 OSD 输出编码用途不同，不把两者混用。后续验收需包含关闭上游／超时降级、队列丢旧与释放、优雅退出及 RSS **<150MB**；指标以实测记录为准。
+实时 MJPEG 仍只在观看或快照请求时编码，无请求时不编码；可选 RTSP 使用 `-preset ultrafast -tune zerolatency -b:v 500k`。Nous 的事件 JPEG 编码与实时 OSD 输出编码用途不同，不把两者混用。`src/main.cpp` 按 `config.streamer.mode` 装配输出：`mjpeg` 模式不创建推流子进程，保持按需 JPEG；`rtsp` 模式把可选 `RtspPusher` 注入 `StreamOutNode`，节点逐帧在独立缓冲生成 OSD，以 RGB24 投递有界写队列，共享采集帧保持只读。推流器启动失败（例如找不到 `ffmpeg`）只打印告警，流水线与 MJPEG 端点继续可用，不因此退出进程；停止时先停节点再回收推流进程，避免节点线程卡在编码器上。RTSP 地址、宽高与帧率分别取自 `config.streamer.rtsp_url` 和 `config.input`，真机 MediaMTX 联动验收待执行。后续验收需包含关闭上游／超时降级、队列丢旧与释放、优雅退出及 RSS **<150MB**；指标以实测记录为准。
 
-初始化和核心框架已交付：`edge_core` 的节点、队列与源分类，以及 `edge_common` 的配置和指标已实现并有本地离线测试。`edge_capture` 的 FFmpeg 拉流、RGB24 解码、EOF 循环、断线重连、截帧和仅视频 remux 录片，以及 `edge_api` 的实时控制端点和运行入口也已实现；`test_capture` 覆盖本地解码、循环与非法源，`test_api` 用伪 `SourceControl` 覆盖健康探针与切源。`edge_detector` 的 MotionNode／NcnnDetectorNode、`edge_streamer` 的 OSD／RTSP 与 `edge_transport` 的 JPEG／Base64、`GenAiWorker` 及 `EventTrackerNode` 已实现并由 `src/main.cpp` 装配为 CaptureNode → MotionNode → NcnnDetectorNode → EventTrackerNode → StreamOutNode 的端到端流水线，API 已接入快照与 MJPEG 回调；PC 存储服务已实现，部署脚本与模板已就绪，真机验收待执行。后续变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；静态检查和工作流定义不等于业务构建或运行验收。
+初始化和核心框架已交付：`edge_core` 的节点、队列与源分类，以及 `edge_common` 的配置和指标已实现并有本地离线测试。`edge_capture` 的 FFmpeg 拉流、RGB24 解码、EOF 循环、断线重连、截帧和仅视频 remux 录片，以及 `edge_api` 的实时控制端点和运行入口也已实现；`test_capture` 覆盖本地解码、循环与非法源，`test_api` 用伪 `SourceControl` 覆盖健康探针与切源。`edge_detector` 的 MotionNode／NcnnDetectorNode、`edge_streamer` 的 OSD／RTSP 与 `edge_transport` 的 JPEG／Base64、`GenAiWorker` 及 `EventTrackerNode` 已实现并由 `src/main.cpp` 装配为 CaptureNode → MotionNode → NcnnDetectorNode → EventTrackerNode → StreamOutNode 的端到端流水线，API 已接入快照与 MJPEG 回调，推流器已按 `config.streamer` 装配为 MJPEG／RTSP 双模并接入优雅退出；PC 存储服务已实现，部署脚本与模板已就绪，真机与 MediaMTX 验收待执行。后续变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；静态检查和工作流定义不等于业务构建或运行验收。
 
 ## 8. 模块构建与链接边界（PATCH-005）
 

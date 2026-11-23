@@ -263,7 +263,7 @@ class BaseNode {
 | `v0.1-oculus` | Oculus，神目／视觉 | 接入手机有线流和本地循环视频，完成采集与基础控制面 | 已实现（本机回环与离线验证）；真机阶段 A 与发版待补 |
 | `v0.2-discern` | Discern，洞察／明辨 | 帧差漏斗与 NCNN 端侧目标检测 | 已实现并接入运行入口，含量化选型；真机验收待补 |
 | `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 事件聚合与异步投递已实现并接入运行入口，LLM 量化选型已实现，PC 存储服务已实现；真机验收待补 |
-| `v1.0-vox` | Vox，神谕之声／宣示 | OSD、MJPEG／RTSP、systemd 守护交付 | 模块已实现并接入运行入口；部署脚本／模板与真机验收待补 |
+| `v1.0-vox` | Vox，神谕之声／宣示 | OSD、MJPEG／RTSP、systemd 守护交付 | OSD 与 MJPEG／RTSP 双模装配已实现并接入运行入口；部署脚本／模板与真机、MediaMTX 验收待补 |
 
 验收完成后按 [AGENTS.md](../AGENTS.md) 发布。任一 `v*` Tag 都要求 x86_64 构建及 CTest、云存储离线 pytest、aarch64 构建及打包。打 Tag 前确认云存储已有可运行测试、`deploy/edge-vision.service` 模板已在目标机验收，且 CMake 可安装 `bin/edge-vision-analyzer`。这是首个 Release 同样适用的前置条件。
 
@@ -411,13 +411,14 @@ FastAPI `POST /api/v1/events` 解码干净 JPEG，把图片写入 `cloud-storage
 
 `StreamOutNode` 默认采用 `mjpeg`：只在存在活跃 `/api/v1/stream` 连接或收到 `/api/v1/snapshot.jpg` 请求时调用 `stbi_write_jpg_to_func`，广播带 OSD 的图像；无人观看且无快照请求时跳过 JPEG 编码。MJPEG 媒体类型为 `multipart/x-mixed-replace; boundary=frame`；快照无首帧时返回 503。
 
-可选 `rtsp` 模式由 `RtspPusher` 启动 FFmpeg 管道，以 `-preset ultrafast -tune zerolatency -b:v 500k` 推送外部 `bluenviron/mediamtx`；不在边缘程序里实现 RTSP 服务端。选择模式、地址和端口从统一配置读取。
+可选 `rtsp` 模式由 `RtspPusher` 启动 FFmpeg 管道，以 `-preset ultrafast -tune zerolatency -b:v 500k` 推送外部 `bluenviron/mediamtx`；不在边缘程序里实现 RTSP 服务端。选择模式、地址和端口从统一配置读取。Issue #98 已把推流器按 `config.streamer` 注入 `StreamOutNode`：`rtsp` 时逐帧在独立缓冲画 OSD 后以 RGB24 推送，`mjpeg` 时不启动子进程；推流器启动失败只告警，MJPEG 端点与流水线继续运行。启动和停止由 `src/main.cpp` 接入现有优雅退出，先停节点再回收编码进程。真机 MediaMTX 联调与画质、延迟验收仍待执行。
 
-**离线测试，规划 3 个用例：**
+**离线测试（已实现，使用 FakeProcessSink，不启动真实 ffmpeg 或网络）：**
 
 1. 越界检测框被裁剪，绘制不越界。
-2. 无客户端且无快照请求时跳过 JPEG 编码。
-3. 快照更新和流输出启停状态机符合契约；用本地桩对象验证，不连接真实摄像头或 MediaMTX。
+2. 无客户端且无快照请求时跳过 JPEG 编码；mjpeg 模式不启动推流进程。
+3. 注入推流器后 OSD 帧以 RGB24 推送，独立缓冲不修改共享帧；推流启动失败时按需 MJPEG 仍可编码。
+4. 停止时关闭输入并回收推流进程，重复停止幂等；有界队列满时丢帧。
 
 后续经授权在魔百盒部署并验收 systemd 启停、信号退出、MJPEG／选定 RTSP 入口与 RSS <150MB；PC 两个进程不可达时，实时输出仍须正常。仅有二进制或 service 文件不代表服务已部署。
 

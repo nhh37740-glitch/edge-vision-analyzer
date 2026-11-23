@@ -14,6 +14,7 @@
 #include <stb_image_write.h>
 
 #include "streamer/osd_annotator.hpp"
+#include "streamer/rtsp_pusher.hpp"
 
 namespace edge {
 namespace {
@@ -28,8 +29,10 @@ void append_jpeg_bytes(void* context, void* data, int size) {
 
 }  // namespace
 
-StreamOutNode::StreamOutNode(std::size_t queue_capacity)
-    : BaseNode("StreamOutNode", queue_capacity) {}
+StreamOutNode::StreamOutNode(std::size_t queue_capacity,
+                             std::shared_ptr<RtspPusher> rtsp_pusher)
+    : BaseNode("StreamOutNode", queue_capacity),
+      rtsp_pusher_(std::move(rtsp_pusher)) {}
 
 StreamOutNode::~StreamOutNode() { stop(); }
 
@@ -85,29 +88,47 @@ void StreamOutNode::stop() {
 }
 
 FrameMetaPtr StreamOutNode::process(FrameMetaPtr meta) {
+  if (!meta) {
+    return meta;
+  }
+
+  // An injected pusher only counts as active once its writer is running. If
+  // the ffmpeg launch failed, fall back to the on-demand MJPEG path instead of
+  // rendering OSD that nobody consumes.
+  const bool rtsp = rtsp_pusher_ != nullptr && rtsp_pusher_->running();
+
   bool demanded = false;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     demanded = subscribers_ > 0 || snapshot_pending_;
   }
-  if (!demanded) {
+  if (!rtsp && !demanded) {
     return meta;
   }
 
-  if (meta) {
-    encode_and_publish(*meta);
+  if (!prepare_osd(*meta)) {
+    return meta;
+  }
+
+  if (rtsp) {
+    // push() copies into the pusher's bounded queue, so the shared frame stays
+    // read-only and the node thread never waits on the encoder.
+    rtsp_pusher_->push(osd_buffer_);
+  }
+  if (demanded) {
+    publish_jpeg(*meta);
   }
   return meta;
 }
 
-void StreamOutNode::encode_and_publish(const FrameMeta& meta) {
+bool StreamOutNode::prepare_osd(const FrameMeta& meta) {
   if (meta.width <= 0 || meta.height <= 0) {
-    return;
+    return false;
   }
   const std::size_t expected =
       static_cast<std::size_t>(meta.width) * static_cast<std::size_t>(meta.height) * 3;
   if (meta.rgb_data.size() != expected) {
-    return;
+    return false;
   }
 
   // Reuse the worker-owned annotation buffer so a steady frame size performs
@@ -117,7 +138,10 @@ void StreamOutNode::encode_and_publish(const FrameMeta& meta) {
   }
   std::copy(meta.rgb_data.begin(), meta.rgb_data.end(), osd_buffer_.begin());
   draw_osd(meta, meta.targets, osd_buffer_);
+  return true;
+}
 
+void StreamOutNode::publish_jpeg(const FrameMeta& meta) {
   std::vector<std::uint8_t> jpeg;
   if (stbi_write_jpg_to_func(&append_jpeg_bytes, &jpeg, meta.width, meta.height,
                              3, osd_buffer_.data(), kJpegQuality) == 0) {

@@ -1,9 +1,12 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -220,25 +223,37 @@ TEST(StreamOutNode, ConsumesSnapshotRequestOnlyOnce) {
 
 // Records the ffmpeg command line and simulates its stdin. When `drain` is
 // false every write reports a full pipe, which exercises bounded-queue drops.
+// Drained writes are captured so tests can inspect the pushed RGB24 frame.
 class FakeProcessSink final : public edge::ProcessSink {
  public:
-  explicit FakeProcessSink(bool drain) : drain_(drain) {}
+  explicit FakeProcessSink(bool drain, bool fail_start = false)
+      : drain_(drain), fail_start_(fail_start) {}
 
   bool Start(const std::vector<std::string>& command,
              std::string* error) override {
-    (void)error;
     command_ = command;
+    ++start_attempts;
+    if (fail_start_) {
+      if (error != nullptr) {
+        *error = "fake start failure";
+      }
+      return false;
+    }
     ++start_calls;
     active.fetch_add(1);
     return true;
   }
 
   std::ptrdiff_t Write(const std::uint8_t* data, std::size_t size) override {
-    (void)data;
     if (!drain_) {
       return 0;
     }
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      received_.insert(received_.end(), data, data + size);
+    }
     bytes_written.fetch_add(size);
+    cv_.notify_all();
     return static_cast<std::ptrdiff_t>(size);
   }
 
@@ -252,13 +267,31 @@ class FakeProcessSink final : public edge::ProcessSink {
     return 0;
   }
 
+  bool wait_for_bytes(std::size_t size, std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return cv_.wait_for(lock, timeout,
+                        [this, size] { return received_.size() >= size; });
+  }
+
+  std::vector<std::uint8_t> received() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return received_;
+  }
+
   std::vector<std::string> command_;
   const bool drain_;
+  const bool fail_start_;
+  int start_attempts = 0;
   int start_calls = 0;
   int close_calls = 0;
   int wait_calls = 0;
   std::atomic<int> active{0};
   std::atomic<std::size_t> bytes_written{0};
+
+ private:
+  mutable std::mutex mutex_;
+  std::condition_variable cv_;
+  std::vector<std::uint8_t> received_;
 };
 
 bool has_pair(const std::vector<std::string>& args, const std::string& flag,
@@ -338,6 +371,61 @@ TEST(RtspPusher, StopReapsProcessAndFullPipeDropsFrames) {
   pusher.stop();  // idempotent
   EXPECT_EQ(sink->wait_calls, 1);
   EXPECT_EQ(sink->close_calls, 1);
+}
+
+TEST(StreamOutNodeRtsp, PushesOsdFrameAndLeavesSourceUntouched) {
+  auto sink = std::make_shared<FakeProcessSink>(true);
+  auto pusher = std::make_shared<edge::RtspPusher>(
+      "rtsp", "rtsp://127.0.0.1:8554/edge", 32, 32, 10, "ffmpeg", sink);
+  ASSERT_TRUE(pusher->start());
+
+  TestStreamOutNode node(2, pusher);
+  auto frame = std::make_shared<FrameMeta>(make_frame(32, 32, 0x20));
+  TargetBox target;
+  target.label = "person";
+  target.score = 0.87f;
+  target.x = 0.25f;
+  target.y = 0.25f;
+  target.w = 0.5f;
+  target.h = 0.5f;
+  frame->targets.push_back(target);
+  const std::vector<std::uint8_t> original = frame->rgb_data;
+
+  node.process(frame);
+
+  const std::size_t expected = 32U * 32U * 3U;
+  ASSERT_TRUE(sink->wait_for_bytes(expected, std::chrono::seconds(2)));
+  const std::vector<std::uint8_t> pushed = sink->received();
+  ASSERT_EQ(pushed.size(), expected);
+  // The OSD box starts at x=8; only the pushed copy may contain it.
+  EXPECT_TRUE(is_box_pixel(pushed, 32, 8, 16));
+  EXPECT_FALSE(is_box_pixel(frame->rgb_data, 32, 8, 16));
+  EXPECT_EQ(frame->rgb_data, original);
+  EXPECT_EQ(node.encoded_frames(), 0U);  // no subscriber: no MJPEG encode
+
+  node.stop();
+  pusher->stop();
+  EXPECT_EQ(sink->wait_calls, 1);
+}
+
+TEST(StreamOutNodeRtsp, StartFailureFallsBackToMjpeg) {
+  auto sink = std::make_shared<FakeProcessSink>(true, true);
+  auto pusher = std::make_shared<edge::RtspPusher>(
+      "rtsp", "rtsp://127.0.0.1:8554/edge", 16, 16, 10, "ffmpeg", sink);
+  ASSERT_FALSE(pusher->start());
+  EXPECT_FALSE(pusher->running());
+
+  TestStreamOutNode node(2, pusher);
+  node.subscribe();
+  node.process(std::make_shared<FrameMeta>(make_frame(16, 16, 0x30)));
+
+  EXPECT_EQ(sink->start_attempts, 1);
+  EXPECT_EQ(sink->bytes_written.load(), 0U);
+  EXPECT_EQ(node.encoded_frames(), 1U);
+  ASSERT_TRUE(node.latest_jpeg());
+
+  node.stop();
+  pusher->stop();
 }
 
 }  // namespace
