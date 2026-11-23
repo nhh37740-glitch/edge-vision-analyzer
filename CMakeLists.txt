@@ -15,7 +15,10 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
   libavformat libavcodec libavutil libswscale)
 find_path(STB_INCLUDE_DIR NAMES stb_image_write.h PATH_SUFFIXES stb REQUIRED)
-find_path(HTTPLIB_INCLUDE_DIR NAMES httplib.h REQUIRED)
+pkg_check_modules(HTTPLIB QUIET IMPORTED_TARGET cpp-httplib)
+if(NOT HTTPLIB_FOUND)
+  find_path(HTTPLIB_INCLUDE_DIR NAMES httplib.h REQUIRED)
+endif()
 
 add_library(edge_core STATIC
   src/core/base_node.cpp
@@ -43,8 +46,13 @@ target_link_libraries(edge_capture PUBLIC edge_core edge_common PkgConfig::FFMPE
 add_library(edge_api STATIC
   src/api/api_server.cpp
 )
-target_include_directories(edge_api PRIVATE ${HTTPLIB_INCLUDE_DIR})
-target_link_libraries(edge_api PUBLIC edge_core edge_common)
+if(HTTPLIB_FOUND)
+  # Ubuntu ships cpp-httplib as a compiled library plus a pkg-config file.
+  target_link_libraries(edge_api PUBLIC edge_core edge_common PkgConfig::HTTPLIB)
+else()
+  target_include_directories(edge_api PUBLIC ${HTTPLIB_INCLUDE_DIR})
+  target_link_libraries(edge_api PUBLIC edge_core edge_common)
+endif()
 if(WIN32)
   target_link_libraries(edge_api PUBLIC ws2_32)
 endif()
