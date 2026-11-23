@@ -1,12 +1,12 @@
 # Edge Vision Analyzer — 里程碑、内部契约与验收
 
-状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，v0.2 的帧差漏斗 MotionNode 与 NcnnDetectorNode 模块已实现（尚未接入运行入口），离线单测已覆盖上述模块，真机验收待补。更新日期：2026-11-23（北京时间）。
+状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，v0.2 的帧差漏斗 MotionNode 与 NcnnDetectorNode 模块已实现（尚未接入运行入口），v0.3 的 JPEG／Base64 编码与 `GenAiWorker` 异步投递已实现（未接入运行入口，事件聚合与 PC 存储服务待实现），离线单测已覆盖上述模块，真机验收待补。更新日期：2026-11-24（北京时间）。
 
 本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-009。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.example.json](../config/config.example.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
 
 ## 1. 当前执行边界与后续启动条件
 
-当前已实现 C++17 构建骨架、aarch64 工具链、`src/core`／`src/common` 的节点框架、配置与指标，`src/capture` 的 FFmpeg 拉流、RGB24 解码、截帧和仅视频 remux 录片，以及 `src/api` 的 health、stats、config 读取和 source-switch 控制面；`test_core`、`test_capture` 与 `test_api` 提供离线覆盖。检测、推理、存储、推流与部署仍待实现。FastAPI `server.py` 在 `v0.3-nous` 实现。所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
+当前已实现 C++17 构建骨架、aarch64 工具链、`src/core`／`src/common` 的节点框架、配置与指标，`src/capture` 的 FFmpeg 拉流、RGB24 解码、截帧和仅视频 remux 录片，`src/streamer` 的 OSD 标注与按需 JPEG／MJPEG／RTSP 输出，`src/transport` 的 JPEG／Base64 编码与 `GenAiWorker` 异步投递，以及 `src/api` 的 health、stats、config 读取和 source-switch 控制面；上述模块均有离线测试覆盖，其中检测、推流、事件聚合与投递模块尚未接入运行入口。EventTrackerNode、PC 存储服务与部署仍待实现。FastAPI `server.py` 在 `v0.3-nous` 实现。所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
 当前仓库包含协作模板、GitHub Actions、根 [CMakeLists.txt](../CMakeLists.txt) 的 C++17 构建骨架和 `cmake/aarch64-toolchain.cmake`；Issue #1 已使 `edge_core` 与 `test_build` 可构建，Issue #2 增加 `edge_common` 与 `test_core`，Issue #3 增加 `edge_capture`，Issue #4 增加 `edge_api` 与运行入口，Issue #5 增加 `test_capture` 与 `test_api` 离线用例；其余目标随 `v0.1-oculus` 的各项 Issue 加入。FastAPI `server.py` 在 `v0.3-nous` 实现。接手 Agent 在收到开发指令后实施业务，所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
@@ -333,14 +333,14 @@ class BaseNode {
 **全部交付件：**
 
 - 实现 [start_pc_services.sh](../scripts/start_pc_services.sh)，在联想 PC 启动并分别探活 `llama-server :8080` 与 `cloud-storage :8090`。脚本最多 50 行，本轮已提交注释占位。
-- `src/transport/event_tracker_node.hpp` / `.cpp`：仅当前活跃事件的瞬时聚合状态和触发节流。
-- `src/transport/jpeg_base64.hpp` / `.cpp`：干净 JPEG 一次内存编码与 Base64 复用。
-- `src/transport/genai_worker.hpp` / `.cpp`：单后台线程、队列 1，顺序执行可选 LLM 和可选 Storage HTTP。
+- `src/transport/event_tracker_node.hpp` / `.cpp`：仅当前活跃事件的瞬时聚合状态和触发节流。（待实现）
+- `src/transport/jpeg_base64.hpp` / `.cpp`：干净 JPEG 一次内存编码与 Base64 复用。（已实现）
+- `src/transport/genai_worker.hpp` / `.cpp`：单后台线程、队列 1，顺序执行可选 LLM 和可选 Storage HTTP。（已实现，未接入运行入口）
 - 更新边缘健康接口，分别报告 LLM `:8080` 与 Storage `:8090` 状态；在配置热更新中接入 `storage.enabled`。边缘 `:8081` 不提供历史事件列表。
 - `cloud-storage/server.py` 后续实现为联想 PC 独立 FastAPI + SQLite 进程，监听 `:8090`，与 `llama-server :8080` 和 C++ ARM64 构建解耦。
 - 完成 `cloud-storage/README.md` 的实际启动／运行说明，使用 `requirements.txt` 中 `fastapi`、`uvicorn`、`pydantic` 和 `schema.sql` 的表／索引契约；本轮已有契约和空占位不算服务实现。
 - PC 实现健康、事件和图片接口，并接收和查询 `GET`／`POST /api/v1/logs`。接口语义和日志分日方式以 [api](api.md) / [OpenAPI](openapi.yaml) 为准。
-- `tests/test_transport.cpp`，3～5 个离线用例；后续 PC 服务另用临时目录和临时 SQLite 验证存储／分页，不依赖真实模型、私人影像或真实运行数据库。本轮不创建这些测试。
+- `tests/test_transport.cpp`，3～5 个离线用例；后续 PC 服务另用临时目录和临时 SQLite 验证存储／分页，不依赖真实模型、私人影像或真实运行数据库。当前已实现 4 个 `GenAiWorker`／JPEG 用例，覆盖两开关关闭、仅 LLM、LLM 失败后空摘要投递和队列丢旧释放；事件聚合用例待 `EventTrackerNode` 落地后补充。
 
 **内部架构：**
 

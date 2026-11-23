@@ -1,6 +1,6 @@
 # Edge Vision Analyzer 架构
 
-状态：有效设计契约；v0.1 核心框架、采集模块与控制面已实现，v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）与 NcnnDetectorNode（NCNN 目标检测与 NMS）模块已实现，尚未接入运行入口，事件聚合、推理与存储等其余业务能力待实现。维护：项目接力 Agent；日期：2026-11-23（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集及 PC 日志落盘／查询，PATCH-009 补充部署对时与温度观测。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
+状态：有效设计契约；v0.1 核心框架、采集模块与控制面已实现，v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）与 NcnnDetectorNode（NCNN 目标检测与 NMS）模块已实现，v0.3 的 JPEG／Base64 编码与 `GenAiWorker` 异步投递已实现（以上模块均尚未接入运行入口），事件聚合与 PC 存储服务等其余业务能力待实现。维护：项目接力 Agent；日期：2026-11-24（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集及 PC 日志落盘／查询，PATCH-009 补充部署对时与温度观测。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
 
 ## 1. 物理拓扑与三个服务入口
 
@@ -126,7 +126,7 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 
 实时 MJPEG 仍只在观看或快照请求时编码，无请求时不编码；可选 RTSP 使用 `-preset ultrafast -tune zerolatency -b:v 500k`。Nous 的事件 JPEG 编码与实时 OSD 输出编码用途不同，不把两者混用。后续验收需包含关闭上游／超时降级、队列丢旧与释放、优雅退出及 RSS **<150MB**；指标以实测记录为准。
 
-初始化和核心框架已交付：`edge_core` 的节点、队列与源分类，以及 `edge_common` 的配置和指标已实现并有本地离线测试。`edge_capture` 的 FFmpeg 拉流、RGB24 解码、EOF 循环、断线重连、截帧和仅视频 remux 录片，以及 `edge_api` 的实时控制端点和运行入口也已实现；`test_capture` 覆盖本地解码、循环与非法源，`test_api` 用伪 `SourceControl` 覆盖健康探针与切源。检测、事件、推理、存储、推流和部署仍待实现。后续变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；静态检查和工作流定义不等于业务构建或运行验收。
+初始化和核心框架已交付：`edge_core` 的节点、队列与源分类，以及 `edge_common` 的配置和指标已实现并有本地离线测试。`edge_capture` 的 FFmpeg 拉流、RGB24 解码、EOF 循环、断线重连、截帧和仅视频 remux 录片，以及 `edge_api` 的实时控制端点和运行入口也已实现；`test_capture` 覆盖本地解码、循环与非法源，`test_api` 用伪 `SourceControl` 覆盖健康探针与切源。`edge_detector` 的 MotionNode／NcnnDetectorNode、`edge_streamer` 的 OSD／RTSP 与 `edge_transport` 的 JPEG／Base64 及 `GenAiWorker` 已实现但尚未接入运行入口；事件聚合、PC 存储和部署仍待实现。后续变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；静态检查和工作流定义不等于业务构建或运行验收。
 
 ## 8. 模块构建与链接边界（PATCH-005）
 
@@ -142,7 +142,7 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 | `edge_streamer` | `edge_core`、`edge_common`、stb |
 | `edge_api` | `edge_core`、`edge_common`、cpp-httplib |
 
-`src/main.cpp` 已作为唯一运行入口，当前链接 `edge_core`、`edge_common`、`edge_capture` 和 `edge_api` 形成边缘可执行文件 `edge-vision-analyzer`；`edge_detector` 的 MotionNode 与 `edge_streamer` 的 OSD 标注尚未接入运行入口，`edge_transport` 目标待落地后按上表加入。FFmpeg 等非头文件第三方底层运行库保持动态链接，不将“项目模块 STATIC”理解为全静态程序。依赖以目标为范围声明，实际 imported target 名称随所选版本登记，不把 FFmpeg 全局注入 core/common 或所有模块。`cloud-storage` 仍为独立 PC 进程，不参与此 C++ 链接图。
+`src/main.cpp` 已作为唯一运行入口，当前链接 `edge_core`、`edge_common`、`edge_capture` 和 `edge_api` 形成边缘可执行文件 `edge-vision-analyzer`；`edge_detector` 的 MotionNode／NcnnDetectorNode、`edge_streamer` 的 OSD／RTSP 推流与 `edge_transport` 的 `jpeg_base64`／`GenAiWorker` 均已实现但尚未接入运行入口，`EventTrackerNode` 待实现。FFmpeg 等非头文件第三方底层运行库保持动态链接，不将“项目模块 STATIC”理解为全静态程序。依赖以目标为范围声明，实际 imported target 名称随所选版本登记，不把 FFmpeg 全局注入 core/common 或所有模块。`cloud-storage` 仍为独立 PC 进程，不参与此 C++ 链接图。
 
 `include(CTest)` 已启用；每个单测可执行文件仅直接链接 `edge_core`、`edge_common`、被测模块和 `GTest::gtest_main`；被测模块按上表带入自身必要依赖。`test_detector` 不链接 capture、主程序或 FFmpeg。交叉编译设置 `BUILD_TESTING=OFF`；`cmake/aarch64-toolchain.cmake` 已由 Issue #1 建立，工具链与依赖版本记录在 README。
 
