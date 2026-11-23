@@ -1,7 +1,10 @@
 #include "api/api_server.hpp"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <limits>
+#include <optional>
 #include <utility>
 
 #include "core/base_node.hpp"
@@ -80,17 +83,129 @@ std::string probe_upstream(const std::string& endpoint) {
   return response && response->status == 200 ? "reachable" : "unreachable";
 }
 
+// Only these five leaves are hot-updatable. The parser rejects the whole
+// request on any unknown key, wrong type or out-of-range value so the caller
+// can leave the published config untouched.
+struct ConfigPatch {
+  std::optional<double> motion_mad_threshold;
+  std::optional<double> conf_threshold;
+  std::optional<bool> llm_enabled;
+  std::optional<int> llm_cooldown_sec;
+  std::optional<bool> storage_enabled;
+};
+
+constexpr const char* kPatchShapeError = "config patch must be a non-empty JSON object";
+constexpr const char* kPatchUnknownFieldError = "config patch contains an unknown field";
+constexpr const char* kPatchTypeError = "config patch field has an invalid type";
+constexpr const char* kPatchRangeError = "config patch value is out of range";
+
+bool parse_patch_number(const nlohmann::json& value, double minimum, double maximum,
+                        std::optional<double>& target, const char*& error) {
+  if (!value.is_number()) {
+    error = kPatchTypeError;
+    return false;
+  }
+  const double number = value.get<double>();
+  if (number < minimum || number > maximum) {
+    error = kPatchRangeError;
+    return false;
+  }
+  target = number;
+  return true;
+}
+
+bool parse_patch_bool(const nlohmann::json& value, std::optional<bool>& target,
+                      const char*& error) {
+  if (!value.is_boolean()) {
+    error = kPatchTypeError;
+    return false;
+  }
+  target = value.get<bool>();
+  return true;
+}
+
+bool parse_patch_cooldown(const nlohmann::json& value, std::optional<int>& target,
+                          const char*& error) {
+  if (!value.is_number_integer()) {
+    error = kPatchTypeError;
+    return false;
+  }
+  if (value.is_number_unsigned()) {
+    const std::uint64_t seconds = value.get<std::uint64_t>();
+    if (seconds > static_cast<std::uint64_t>(std::numeric_limits<int>::max())) {
+      error = kPatchRangeError;
+      return false;
+    }
+    target = static_cast<int>(seconds);
+    return true;
+  }
+  const std::int64_t seconds = value.get<std::int64_t>();
+  if (seconds < 0 || seconds > std::numeric_limits<int>::max()) {
+    error = kPatchRangeError;
+    return false;
+  }
+  target = static_cast<int>(seconds);
+  return true;
+}
+
+bool parse_config_patch(const nlohmann::json& body, ConfigPatch& patch,
+                        const char*& error) {
+  if (!body.is_object() || body.empty()) {
+    error = kPatchShapeError;
+    return false;
+  }
+
+  for (auto group = body.begin(); group != body.end(); ++group) {
+    if (!group.value().is_object() || group.value().empty()) {
+      error = kPatchShapeError;
+      return false;
+    }
+
+    for (auto leaf = group.value().begin(); leaf != group.value().end(); ++leaf) {
+      if (group.key() == "detector" && leaf.key() == "motion_mad_threshold") {
+        if (!parse_patch_number(leaf.value(), 0.0, 255.0,
+                                patch.motion_mad_threshold, error)) {
+          return false;
+        }
+      } else if (group.key() == "detector" && leaf.key() == "conf_threshold") {
+        if (!parse_patch_number(leaf.value(), 0.0, 1.0, patch.conf_threshold,
+                                error)) {
+          return false;
+        }
+      } else if (group.key() == "llm" && leaf.key() == "enabled") {
+        if (!parse_patch_bool(leaf.value(), patch.llm_enabled, error)) {
+          return false;
+        }
+      } else if (group.key() == "llm" && leaf.key() == "cooldown_sec") {
+        if (!parse_patch_cooldown(leaf.value(), patch.llm_cooldown_sec, error)) {
+          return false;
+        }
+      } else if (group.key() == "storage" && leaf.key() == "enabled") {
+        if (!parse_patch_bool(leaf.value(), patch.storage_enabled, error)) {
+          return false;
+        }
+      } else {
+        error = kPatchUnknownFieldError;
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 }  // namespace
 
 ApiServer::ApiServer(Config config, std::shared_ptr<SourceControl> source_control,
                      std::shared_ptr<Metrics> metrics, std::string bind_address,
-                     std::optional<StreamCallbacks> stream_callbacks)
+                     std::optional<StreamCallbacks> stream_callbacks,
+                     ConfigAppliers config_appliers)
     : server_(std::make_unique<httplib::Server>()),
       config_(std::move(config)),
       bind_address_(std::move(bind_address)),
       source_control_(std::move(source_control)),
       metrics_(std::move(metrics)),
-      stream_callbacks_(std::move(stream_callbacks)) {
+      stream_callbacks_(std::move(stream_callbacks)),
+      config_appliers_(std::move(config_appliers)) {
   configure_routes();
 }
 
@@ -148,6 +263,66 @@ void ApiServer::configure_routes() {
                [this](const httplib::Request&, httplib::Response& response) {
                  set_json(response, nlohmann::json(config_snapshot()));
                });
+
+  server_->Patch("/api/v1/config",
+                 [this](const httplib::Request& request, httplib::Response& response) {
+                   ConfigPatch patch;
+                   const char* error = nullptr;
+                   const nlohmann::json body =
+                       nlohmann::json::parse(request.body, nullptr, false);
+                   if (!parse_config_patch(body, patch, error)) {
+                     set_error(response, 400, "INVALID_PARAMETER", error);
+                     return;
+                   }
+
+                   // Validate the whole request first, then swap the complete
+                   // snapshot under the lock so a reader never observes a
+                   // partially applied patch. The running nodes are notified
+                   // only after the new snapshot is published.
+                   {
+                     std::lock_guard<std::mutex> lock(config_mutex_);
+                     Config updated = config_;
+                     if (patch.motion_mad_threshold) {
+                       updated.detector.motion_mad_threshold =
+                           *patch.motion_mad_threshold;
+                     }
+                     if (patch.conf_threshold) {
+                       updated.detector.conf_threshold = *patch.conf_threshold;
+                     }
+                     if (patch.llm_enabled) {
+                       updated.llm.enabled = *patch.llm_enabled;
+                     }
+                     if (patch.llm_cooldown_sec) {
+                       updated.llm.cooldown_sec = *patch.llm_cooldown_sec;
+                     }
+                     if (patch.storage_enabled) {
+                       updated.storage.enabled = *patch.storage_enabled;
+                     }
+                     config_ = std::move(updated);
+                   }
+
+                   if (patch.motion_mad_threshold &&
+                       config_appliers_.set_motion_mad_threshold) {
+                     config_appliers_.set_motion_mad_threshold(
+                         *patch.motion_mad_threshold);
+                   }
+                   if (patch.conf_threshold && config_appliers_.set_conf_threshold) {
+                     config_appliers_.set_conf_threshold(*patch.conf_threshold);
+                   }
+                   if (patch.llm_enabled && config_appliers_.set_llm_enabled) {
+                     config_appliers_.set_llm_enabled(*patch.llm_enabled);
+                   }
+                   if (patch.llm_cooldown_sec &&
+                       config_appliers_.set_llm_cooldown_sec) {
+                     config_appliers_.set_llm_cooldown_sec(*patch.llm_cooldown_sec);
+                   }
+                   if (patch.storage_enabled &&
+                       config_appliers_.set_storage_enabled) {
+                     config_appliers_.set_storage_enabled(*patch.storage_enabled);
+                   }
+
+                   set_json(response, nlohmann::json(config_snapshot()));
+                 });
 
   server_->Post("/api/v1/source/switch",
                 [this](const httplib::Request& request, httplib::Response& response) {

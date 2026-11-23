@@ -93,7 +93,7 @@ paths:
       summary: 原子热更新检测/LLM/存储的五个允许字段
       tags:
       - v0.2-discern
-      x-implementation-status: planned
+      x-implementation-status: implemented
       responses:
         '200':
           description: 返回更新后的完整生效配置。

@@ -130,19 +130,18 @@ int main(int argc, char** argv) {
                  "NcnnDetectorNode: model unavailable; frames will pass through\n");
   }
 
-  std::shared_ptr<edge::GenAiWorker> worker;
-  if (config.llm.enabled || config.storage.enabled) {
-    worker = std::make_shared<edge::GenAiWorker>(config.llm, config.storage, metrics);
-  }
+  // Always construct and start the worker so PATCH /api/v1/config can enable
+  // LLM or storage delivery at runtime. With both switches off it only parks
+  // on its capacity-1 queue; no frame is encoded and no HTTP request is made.
+  auto worker =
+      std::make_shared<edge::GenAiWorker>(config.llm, config.storage, metrics);
 
   edge::EventOptions event_options;
   event_options.end_grace_sec = config.event.end_grace_sec;
   event_options.cooldown_sec = config.llm.cooldown_sec;
-  if (worker) {
-    event_options.submit = [worker](edge::GenAiTask task) {
-      return worker->submit(std::move(task));
-    };
-  }
+  event_options.submit = [worker](edge::GenAiTask task) {
+    return worker->submit(std::move(task));
+  };
   auto tracker = std::make_shared<edge::EventTrackerNode>(std::move(event_options));
 
   // RTSP is opt-in. In mjpeg mode no encoder process is created at all; the
@@ -172,15 +171,33 @@ int main(int argc, char** argv) {
       };
   stream_callbacks.latest_jpeg_seq = [stream_out] { return stream_out->latest_jpeg_seq(); };
 
+  edge::ConfigAppliers config_appliers;
+  config_appliers.set_motion_mad_threshold = [motion](double threshold) {
+    motion->set_threshold(threshold);
+  };
+  config_appliers.set_conf_threshold = [detector](double threshold) {
+    detector->set_conf_threshold(static_cast<float>(threshold));
+  };
+  config_appliers.set_llm_cooldown_sec = [tracker](int cooldown_sec) {
+    tracker->set_cooldown_sec(cooldown_sec);
+  };
+  // The worker is always running, so enabling an upstream at runtime takes
+  // effect for the next event without restarting the process.
+  config_appliers.set_llm_enabled = [worker](bool enabled) {
+    worker->set_llm_enabled(enabled);
+  };
+  config_appliers.set_storage_enabled = [worker](bool enabled) {
+    worker->set_storage_enabled(enabled);
+  };
+
   auto api = std::make_shared<edge::ApiServer>(
       config, capture, metrics, "0.0.0.0",
-      std::optional<edge::StreamCallbacks>(std::move(stream_callbacks)));
+      std::optional<edge::StreamCallbacks>(std::move(stream_callbacks)),
+      std::move(config_appliers));
 
   // Upstream nodes start last so no frame reaches a node whose worker is not
   // running yet.
-  if (worker) {
-    worker->start();
-  }
+  worker->start();
   if (rtsp_pusher && !rtsp_pusher->start()) {
     // A missing ffmpeg or unreachable RTSP server must not take down the
     // pipeline: log the cause and keep the MJPEG endpoint available.
@@ -205,9 +222,7 @@ int main(int argc, char** argv) {
     if (rtsp_pusher) {
       rtsp_pusher->stop();
     }
-    if (worker) {
-      worker->stop();
-    }
+    worker->stop();
     return 1;
   }
 
@@ -232,9 +247,7 @@ int main(int argc, char** argv) {
   if (rtsp_pusher) {
     rtsp_pusher->stop();
   }
-  if (worker) {
-    worker->stop();
-  }
+  worker->stop();
   api->stop();
   return 0;
 }

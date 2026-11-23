@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -40,6 +41,11 @@ class EventTrackerNode : public BaseNode {
  public:
   explicit EventTrackerNode(EventOptions options);
 
+  // Runtime update for PATCH /api/v1/config; the next trigger uses it.
+  void set_cooldown_sec(int cooldown_sec) {
+    cooldown_ms_.store(static_cast<std::int64_t>(cooldown_sec) * 1000);
+  }
+
   EventTrackerSnapshot snapshot() const;
 
  protected:
@@ -54,7 +60,7 @@ class EventTrackerNode : public BaseNode {
 
   EventOptions options_;
   const std::int64_t end_grace_ms_;
-  const std::int64_t cooldown_ms_;
+  std::atomic<std::int64_t> cooldown_ms_;
 
   mutable std::mutex mutex_;
   bool active_ = false;

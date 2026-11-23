@@ -1,12 +1,12 @@
 # Edge Vision Analyzer — 里程碑、内部契约与验收
 
-状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，v0.2 的帧差漏斗 MotionNode、NcnnDetectorNode 与检测量化选型模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递、`EventTrackerNode` 事件聚合与 LLM 量化选型已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现，上述模块已由 `src/main.cpp` 接入端到端运行入口；PC 云存储服务已实现，health 上游探活已实现，部署脚本与模板已就绪，PATCH config 热更新尚未实现；离线单测已覆盖上述模块，真机验收待执行。更新日期：2026-11-24（北京时间）。
+状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，v0.2 的帧差漏斗 MotionNode、NcnnDetectorNode 与检测量化选型模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递、`EventTrackerNode` 事件聚合与 LLM 量化选型已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现，上述模块已由 `src/main.cpp` 接入端到端运行入口；PC 云存储服务已实现，health 上游探活已实现，部署脚本与模板已就绪，PATCH config 原子热更新已实现；离线单测已覆盖上述模块，真机验收待执行。更新日期：2026-11-24（北京时间）。
 
 本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-009。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.example.json](../config/config.example.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
 
 ## 1. 当前执行边界与后续启动条件
 
-当前已实现 C++17 构建骨架、aarch64 工具链、`src/core`／`src/common` 的节点框架、配置与指标，`src/capture` 的 FFmpeg 拉流、RGB24 解码、截帧和仅视频 remux 录片，`src/streamer` 的 OSD 标注与按需 JPEG／MJPEG／RTSP 输出，`src/transport` 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合，以及 `src/api` 的 health、stats、config 读取和 source-switch 控制面；上述模块均有离线测试覆盖，并已由 `src/main.cpp` 装配为端到端运行入口。PC 存储服务已实现，部署脚本与模板已就绪，真机验收待执行。所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
+当前已实现 C++17 构建骨架、aarch64 工具链、`src/core`／`src/common` 的节点框架、配置与指标，`src/capture` 的 FFmpeg 拉流、RGB24 解码、截帧和仅视频 remux 录片，`src/streamer` 的 OSD 标注与按需 JPEG／MJPEG／RTSP 输出，`src/transport` 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合，以及 `src/api` 的 health、stats、config 读取与 PATCH 原子热更新、source-switch 控制面；上述模块均有离线测试覆盖，并已由 `src/main.cpp` 装配为端到端运行入口。PC 存储服务已实现，部署脚本与模板已就绪，真机验收待执行。所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
 当前仓库包含协作模板、GitHub Actions、根 [CMakeLists.txt](../CMakeLists.txt) 的 C++17 构建骨架和 `cmake/aarch64-toolchain.cmake`；Issue #1 已使 `edge_core` 与 `test_build` 可构建，Issue #2 增加 `edge_common` 与 `test_core`，Issue #3 增加 `edge_capture`，Issue #4 增加 `edge_api` 与运行入口，Issue #5 增加 `test_capture` 与 `test_api` 离线用例；其余目标随 `v0.1-oculus` 的各项 Issue 加入。FastAPI `server.py` 已在 `v0.3-nous` 实现。接手 Agent 在收到开发指令后实施业务，所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
@@ -261,7 +261,7 @@ class BaseNode {
 | 里程碑／规划发版 Tag | 感官意象 | 功能目标 | 当前状态 |
 | --- | --- | --- | --- |
 | `v0.1-oculus` | Oculus，神目／视觉 | 接入手机有线流和本地循环视频，完成采集与基础控制面 | 已实现并接入运行入口（本机回环与离线验证）；真机阶段 A 验收待执行 |
-| `v0.2-discern` | Discern，洞察／明辨 | 帧差漏斗与 NCNN 端侧目标检测 | 检测与量化选型已实现并接入运行入口；PATCH config 热更新待实现，真机验收待执行 |
+| `v0.2-discern` | Discern，洞察／明辨 | 帧差漏斗与 NCNN 端侧目标检测 | 检测与量化选型已实现并接入运行入口；PATCH config 热更新已实现，真机验收待执行 |
 | `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 事件聚合与异步投递已实现并接入运行入口，LLM 量化选型与 PC 云存储服务已实现；真机验收待执行 |
 | `v1.0-vox` | Vox，神谕之声／宣示 | OSD、MJPEG／RTSP、systemd 守护交付 | OSD、快照与 MJPEG／RTSP 双模输出已实现并接入运行入口；部署脚本／模板已就绪，真机与 MediaMTX 验收待执行 |
 
@@ -307,7 +307,7 @@ class BaseNode {
 - `src/detector/ncnn_detector_node.hpp` / `.cpp`。
 - `src/detector/model_selection.hpp` / `.cpp`：按 `quantization` 与设备资源选择 fp32/fp16/int8 候选模型。
 - `models/README.md`：YOLO-Fastest-v2 / NanoDet-Plus `.param`、`.bin` 获取与放置路径；模型权重不入仓库，不由测试自动下载。
-- `ApiServer` 补充 `PATCH /api/v1/config`，支持原子配置快照热更新；字段、响应与限制见接口契约。
+- `ApiServer` 已补充 `PATCH /api/v1/config`，支持原子配置快照热更新；字段、响应与限制见接口契约。
 - `tests/test_detector.cpp`，3～5 个纯离线用例。
 
 **内部架构：**

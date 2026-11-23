@@ -67,6 +67,12 @@ class GenAiWorker {
   void start();
   void stop();
 
+  // Runtime switches for PATCH /api/v1/config. They only toggle delivery for
+  // subsequent tasks; the worker thread lifecycle stays controlled by
+  // start()/stop().
+  void set_llm_enabled(bool enabled) { llm_enabled_.store(enabled); }
+  void set_storage_enabled(bool enabled) { storage_enabled_.store(enabled); }
+
   // Returns false when the worker is not running. A full queue keeps only the
   // latest task and releases the old task's frame reference.
   bool submit(GenAiTask task);
@@ -87,6 +93,8 @@ class GenAiWorker {
 
   LlmConfig llm_;
   StorageConfig storage_;
+  std::atomic<bool> llm_enabled_{false};
+  std::atomic<bool> storage_enabled_{false};
   LlmSelection selection_;
   std::shared_ptr<Metrics> metrics_;
   bool resources_injected_ = false;

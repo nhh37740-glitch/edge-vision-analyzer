@@ -444,4 +444,178 @@ TEST(Api, StreamServesMultipartAndUnsubscribesOnDisconnect) {
   EXPECT_EQ(streamer->subscriptions.load(), 0);
 }
 
+TEST(Api, PatchConfigAppliesSingleFieldAndReturnsFullConfig) {
+  auto source_control = std::make_shared<FakeSourceControl>();
+  auto metrics = std::make_shared<Metrics>();
+  edge::ConfigAppliers appliers;
+  int conf_calls = 0;
+  double applied_conf = -1.0;
+  appliers.set_conf_threshold = [&](double threshold) {
+    ++conf_calls;
+    applied_conf = threshold;
+  };
+
+  ApiServer api(api_config(), source_control, metrics, "127.0.0.1", std::nullopt,
+                appliers);
+  std::string error;
+  ASSERT_TRUE(api.start(error)) << error;
+  httplib::Client client("127.0.0.1", api.port());
+
+  const auto response = client.Patch(
+      "/api/v1/config", R"({"detector":{"conf_threshold":0.75}})",
+      "application/json");
+  ASSERT_TRUE(response);
+  EXPECT_EQ(response->status, 200);
+
+  const nlohmann::json body = nlohmann::json::parse(response->body);
+  // The response is the full effective config, exactly like GET.
+  for (const char* key : {"input", "detector", "event", "llm", "storage", "streamer"}) {
+    EXPECT_TRUE(body.contains(key)) << key;
+  }
+  EXPECT_DOUBLE_EQ(body["detector"]["conf_threshold"].get<double>(), 0.75);
+  EXPECT_DOUBLE_EQ(body["detector"]["motion_mad_threshold"].get<double>(), 8.0);
+  EXPECT_EQ(conf_calls, 1);
+  EXPECT_DOUBLE_EQ(applied_conf, 0.75);
+
+  const auto read_back = client.Get("/api/v1/config");
+  ASSERT_TRUE(read_back);
+  EXPECT_DOUBLE_EQ(
+      nlohmann::json::parse(read_back->body)["detector"]["conf_threshold"].get<double>(),
+      0.75);
+}
+
+TEST(Api, PatchConfigAppliesAllFiveLeaves) {
+  auto source_control = std::make_shared<FakeSourceControl>();
+  auto metrics = std::make_shared<Metrics>();
+  edge::ConfigAppliers appliers;
+  double motion = -1.0;
+  double conf = -1.0;
+  bool llm = false;
+  int cooldown = -1;
+  bool storage = false;
+  appliers.set_motion_mad_threshold = [&](double value) { motion = value; };
+  appliers.set_conf_threshold = [&](double value) { conf = value; };
+  appliers.set_llm_enabled = [&](bool value) { llm = value; };
+  appliers.set_llm_cooldown_sec = [&](int value) { cooldown = value; };
+  appliers.set_storage_enabled = [&](bool value) { storage = value; };
+
+  ApiServer api(api_config(), source_control, metrics, "127.0.0.1", std::nullopt,
+                appliers);
+  std::string error;
+  ASSERT_TRUE(api.start(error)) << error;
+  httplib::Client client("127.0.0.1", api.port());
+
+  const auto response = client.Patch(
+      "/api/v1/config",
+      nlohmann::json{{"detector",
+                      {{"motion_mad_threshold", 12.5}, {"conf_threshold", 0.6}}},
+                     {"llm", {{"enabled", true}, {"cooldown_sec", 3}}},
+                     {"storage", {{"enabled", true}}}}
+          .dump(),
+      "application/json");
+  ASSERT_TRUE(response);
+  EXPECT_EQ(response->status, 200);
+
+  const nlohmann::json body = nlohmann::json::parse(response->body);
+  EXPECT_DOUBLE_EQ(body["detector"]["motion_mad_threshold"].get<double>(), 12.5);
+  EXPECT_DOUBLE_EQ(body["detector"]["conf_threshold"].get<double>(), 0.6);
+  EXPECT_TRUE(body["llm"]["enabled"].get<bool>());
+  EXPECT_EQ(body["llm"]["cooldown_sec"].get<int>(), 3);
+  EXPECT_TRUE(body["storage"]["enabled"].get<bool>());
+
+  EXPECT_DOUBLE_EQ(motion, 12.5);
+  EXPECT_DOUBLE_EQ(conf, 0.6);
+  EXPECT_TRUE(llm);
+  EXPECT_EQ(cooldown, 3);
+  EXPECT_TRUE(storage);
+}
+
+TEST(Api, PatchConfigRejectsInvalidRequestsWithoutChangingConfig) {
+  auto source_control = std::make_shared<FakeSourceControl>();
+  auto metrics = std::make_shared<Metrics>();
+  edge::ConfigAppliers appliers;
+  int applied = 0;
+  appliers.set_motion_mad_threshold = [&](double) { ++applied; };
+  appliers.set_conf_threshold = [&](double) { ++applied; };
+  appliers.set_llm_enabled = [&](bool) { ++applied; };
+  appliers.set_llm_cooldown_sec = [&](int) { ++applied; };
+  appliers.set_storage_enabled = [&](bool) { ++applied; };
+
+  Config config = api_config();
+  ApiServer api(config, source_control, metrics, "127.0.0.1", std::nullopt,
+                appliers);
+  std::string error;
+  ASSERT_TRUE(api.start(error)) << error;
+  httplib::Client client("127.0.0.1", api.port());
+
+  const auto before_response = client.Get("/api/v1/config");
+  ASSERT_TRUE(before_response);
+  const nlohmann::json before = nlohmann::json::parse(before_response->body);
+
+  const std::vector<std::string> invalid_bodies = {
+      "{}",
+      R"({"detector":{}})",
+      R"({"detector":{"unknown":1}})",
+      R"({"unknown":{"enabled":true}})",
+      R"({"llm":{"enabled":"yes"}})",
+      R"({"llm":{"cooldown_sec":1.5}})",
+      R"({"storage":{"enabled":1}})",
+      R"({"detector":{"conf_threshold":1.5}})",
+      R"({"detector":{"motion_mad_threshold":256}})",
+      R"({"llm":{"cooldown_sec":-1}})",
+      R"("not an object")",
+  };
+  for (const std::string& request_body : invalid_bodies) {
+    const auto response =
+        client.Patch("/api/v1/config", request_body, "application/json");
+    ASSERT_TRUE(response) << request_body;
+    EXPECT_EQ(response->status, 400) << request_body;
+    const nlohmann::json body = nlohmann::json::parse(response->body);
+    EXPECT_EQ(body["error"]["code"].get<std::string>(), "INVALID_PARAMETER")
+        << request_body;
+  }
+  EXPECT_EQ(applied, 0);
+
+  const auto after_response = client.Get("/api/v1/config");
+  ASSERT_TRUE(after_response);
+  EXPECT_EQ(nlohmann::json::parse(after_response->body), before);
+}
+
+TEST(Api, PatchConfigRollsBackWhenAnyFieldIsInvalid) {
+  auto source_control = std::make_shared<FakeSourceControl>();
+  auto metrics = std::make_shared<Metrics>();
+  edge::ConfigAppliers appliers;
+  int applied = 0;
+  appliers.set_motion_mad_threshold = [&](double) { ++applied; };
+  appliers.set_conf_threshold = [&](double) { ++applied; };
+  appliers.set_llm_cooldown_sec = [&](int) { ++applied; };
+
+  ApiServer api(api_config(), source_control, metrics, "127.0.0.1", std::nullopt,
+                appliers);
+  std::string error;
+  ASSERT_TRUE(api.start(error)) << error;
+  httplib::Client client("127.0.0.1", api.port());
+
+  const auto before_response = client.Get("/api/v1/config");
+  ASSERT_TRUE(before_response);
+  const nlohmann::json before = nlohmann::json::parse(before_response->body);
+
+  // The detector fields are valid on their own, but the negative cooldown
+  // rejects the whole request and nothing is applied.
+  const auto response = client.Patch(
+      "/api/v1/config",
+      R"({"detector":{"motion_mad_threshold":20.0,"conf_threshold":0.9},)"
+      R"("llm":{"cooldown_sec":-2}})",
+      "application/json");
+  ASSERT_TRUE(response);
+  EXPECT_EQ(response->status, 400);
+  EXPECT_EQ(nlohmann::json::parse(response->body)["error"]["code"].get<std::string>(),
+            "INVALID_PARAMETER");
+
+  const auto after_response = client.Get("/api/v1/config");
+  ASSERT_TRUE(after_response);
+  EXPECT_EQ(nlohmann::json::parse(after_response->body), before);
+  EXPECT_EQ(applied, 0);
+}
+
 }  // namespace

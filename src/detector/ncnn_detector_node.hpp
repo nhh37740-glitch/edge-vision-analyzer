@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <map>
 #include <memory>
@@ -66,6 +67,12 @@ class NcnnDetectorNode : public BaseNode {
     has_device_resources_ = true;
   }
 
+  // Runtime update for PATCH /api/v1/config; read once per processed frame.
+  void set_conf_threshold(float conf_threshold) {
+    conf_threshold_.store(conf_threshold);
+  }
+  float conf_threshold() const { return conf_threshold_.load(); }
+
  protected:
   FrameMetaPtr process(FrameMetaPtr meta) override;
 
@@ -74,6 +81,7 @@ class NcnnDetectorNode : public BaseNode {
                 const std::string& quantization);
 
   Options options_;
+  std::atomic<float> conf_threshold_;
   std::shared_ptr<Metrics> metrics_;
   std::unique_ptr<ncnn::Net> net_;
   std::string input_name_;

@@ -36,13 +36,26 @@ struct StreamCallbacks {
   std::function<std::uint64_t()> latest_jpeg_seq;
 };
 
+// Adapter from the hot-updatable config leaves to the running nodes. main
+// injects these when the pipeline exists; tests inject recording lambdas.
+// Without an applier the API still publishes the new snapshot but the runtime
+// node keeps its previous value.
+struct ConfigAppliers {
+  std::function<void(double)> set_motion_mad_threshold;
+  std::function<void(double)> set_conf_threshold;
+  std::function<void(bool)> set_llm_enabled;
+  std::function<void(int)> set_llm_cooldown_sec;
+  std::function<void(bool)> set_storage_enabled;
+};
+
 // Edge REST control plane. History queries belong to the PC cloud-storage
 // service and are intentionally not proxied here.
 class ApiServer {
  public:
   ApiServer(Config config, std::shared_ptr<SourceControl> source_control,
             std::shared_ptr<Metrics> metrics, std::string bind_address = "0.0.0.0",
-            std::optional<StreamCallbacks> stream_callbacks = std::nullopt);
+            std::optional<StreamCallbacks> stream_callbacks = std::nullopt,
+            ConfigAppliers config_appliers = {});
   ~ApiServer();
 
   ApiServer(const ApiServer&) = delete;
@@ -74,6 +87,7 @@ class ApiServer {
   std::shared_ptr<SourceControl> source_control_;
   std::shared_ptr<Metrics> metrics_;
   std::optional<StreamCallbacks> stream_callbacks_;
+  ConfigAppliers config_appliers_;
   std::chrono::steady_clock::time_point started_{};
 };
 

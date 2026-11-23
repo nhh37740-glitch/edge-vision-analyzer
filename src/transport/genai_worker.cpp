@@ -43,6 +43,8 @@ GenAiWorker::GenAiWorker(LlmConfig llm, StorageConfig storage,
                          std::shared_ptr<Metrics> metrics)
     : llm_(std::move(llm)),
       storage_(std::move(storage)),
+      llm_enabled_(llm_.enabled),
+      storage_enabled_(storage_.enabled),
       selection_(select_llm_model(llm_, llm_resources)),
       metrics_(std::move(metrics)),
       resources_injected_(!llm_resources.available_models.empty()) {}
@@ -84,7 +86,10 @@ void GenAiWorker::start() {
   if (running_.exchange(true)) {
     return;
   }
-  if (!resources_injected_) {
+  // Do not contact llama-server at boot while LLM delivery is off. If PATCH
+  // enables it later, the constructor's fallback selection (the configured
+  // alias) is used for the first request without a second startup probe.
+  if (!resources_injected_ && llm_.enabled) {
     selection_ = select_llm_model(llm_, probe_llm_resources());
   }
   worker_ = std::thread([this] { run(); });
@@ -149,7 +154,11 @@ void GenAiWorker::run() {
 }
 
 void GenAiWorker::handle(GenAiTask task) {
-  if (!llm_.enabled && !storage_.enabled) {
+  // Snapshot both switches once so a PATCH during one task cannot leave the
+  // summary and storage branches using different generations.
+  const bool llm_enabled = llm_enabled_.load();
+  const bool storage_enabled = storage_enabled_.load();
+  if (!llm_enabled && !storage_enabled) {
     // Both switches are off: skip JPEG/Base64 encoding and HTTP entirely.
     task.frame.reset();
     GenAiResult result;
@@ -179,7 +188,7 @@ void GenAiWorker::handle(GenAiTask task) {
 
   std::string summary;
   double latency_ms = 0.0;
-  if (llm_.enabled) {
+  if (llm_enabled) {
     llm_requests_.fetch_add(1);
     const auto started = std::chrono::steady_clock::now();
     const bool ok = request_llm(image.base64, summary);
@@ -198,7 +207,7 @@ void GenAiWorker::handle(GenAiTask task) {
   }
 
   bool delivered = false;
-  if (storage_.enabled) {
+  if (storage_enabled) {
     storage_requests_.fetch_add(1);
     delivered = send_storage(task, image.base64, summary, latency_ms);
     if (!delivered) {
