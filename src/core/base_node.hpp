@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -35,7 +36,11 @@ class BaseNode {
   bool running() const { return running_.load(); }
   NodeState state() const { return state_.load(); }
   const std::string& name() const { return name_; }
-  std::size_t dropped_frames() const { return input_queue_.dropped(); }
+  std::uint64_t dropped_frames() const { return dropped_frames_.load(); }
+
+  // Cumulative drops across every node in this process. The stats endpoint
+  // adds this to its Metrics snapshot.
+  static std::uint64_t total_dropped_frames();
 
  protected:
   virtual FrameMetaPtr process(FrameMetaPtr meta);
@@ -45,8 +50,11 @@ class BaseNode {
   void set_state(NodeState state) { state_.store(state); }
 
  private:
+  void record_dropped_frame();
+
   std::string name_;
   BoundedQueue<FrameMetaPtr> input_queue_;
+  std::atomic<std::uint64_t> dropped_frames_{0};
   std::vector<std::shared_ptr<BaseNode>> next_nodes_;
   std::mutex next_mutex_;
   std::mutex lifecycle_mutex_;

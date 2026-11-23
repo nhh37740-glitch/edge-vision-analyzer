@@ -3,6 +3,14 @@
 #include <utility>
 
 namespace edge {
+namespace {
+
+// Process-wide drop total shared by all nodes. The API process is a single
+// long-running instance, so a global atomic keeps aggregation trivial while
+// staying lock-free on the enqueue path.
+std::atomic<std::uint64_t> g_total_dropped_frames{0};
+
+}  // namespace
 
 BaseNode::BaseNode(std::string name, std::size_t queue_capacity)
     : name_(std::move(name)), input_queue_(queue_capacity) {}
@@ -20,7 +28,18 @@ void BaseNode::push(FrameMetaPtr meta) {
   if (!running_.load() || !meta) {
     return;
   }
-  input_queue_.push(std::move(meta));
+  if (input_queue_.push(std::move(meta))) {
+    record_dropped_frame();
+  }
+}
+
+void BaseNode::record_dropped_frame() {
+  dropped_frames_.fetch_add(1, std::memory_order_relaxed);
+  g_total_dropped_frames.fetch_add(1, std::memory_order_relaxed);
+}
+
+std::uint64_t BaseNode::total_dropped_frames() {
+  return g_total_dropped_frames.load(std::memory_order_relaxed);
 }
 
 void BaseNode::start() {
@@ -55,6 +74,9 @@ void BaseNode::run() {
   // the queue instead of retaining frame buffers until destruction.
   while (input_queue_.pop(meta)) {
     if (!running_.load()) {
+      // Frames still queued when the node stops are discarded without being
+      // processed, so they count as runtime drops too.
+      record_dropped_frame();
       continue;
     }
     try {
