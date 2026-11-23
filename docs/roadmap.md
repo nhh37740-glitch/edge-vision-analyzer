@@ -2,7 +2,7 @@
 
 状态：有效设计；全部业务能力待实现。更新日期：2026-11-23（北京时间）。
 
-本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-006。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.json](../config/config.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
+本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-007。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.example.json](../config/config.example.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
 
 ## 1. 当前执行边界与后续启动条件
 
@@ -27,7 +27,7 @@
 
 ### 阶段 B：无人值守持续开发
 
-阶段 A 验收通过后，通过 [config.json](../config/config.json) 或 `POST /api/v1/source/switch` 将输入切换为 `assets/demo_clip.mp4`，设置 `loop: true`。也可使用具备相应使用许可的开源行人短片。
+阶段 A 验收通过后，编辑由 [config.example.json](../config/config.example.json) 复制出的 `config/config.local.json`，或调用 `POST /api/v1/source/switch`，将输入切换为 `assets/demo_clip.mp4`，设置 `loop: true`。也可使用具备相应使用许可的开源行人短片。
 
 `v0.2-discern`、`v0.3-nous`、`v1.0-vox` 的开发、联调和压测均基于本地循环视频，不持续依赖手机推流。自动测试使用极小素材或 Mock，不自动下载模型、不启动真实摄像头、不阻塞等待真实 LLM。
 
@@ -88,7 +88,7 @@ edge-vision-analyzer/
 ├── .gitignore
 ├── CMakeLists.txt                      # 已有骨架，v0.1-oculus 补可构建目标
 ├── cmake/aarch64-toolchain.cmake       # v0.1-oculus 后续实现
-├── config/config.json
+├── config/config.example.json
 ├── docs/
 │   ├── architecture.md
 │   ├── api.md
@@ -221,7 +221,7 @@ private:
 | `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 待实现 |
 | `v1.0-vox` | Vox，神谕之声／宣示 | OSD、MJPEG／RTSP、systemd 守护交付 | 待实现 |
 
-验收完成后按 [AGENTS.md](../AGENTS.md) 发布。任一 `v*` Tag 都要求 x86_64 构建及 CTest、云存储离线 pytest、aarch64 构建及打包。打 Tag 前确认云存储已有可运行测试、`deploy/edge-vision.service` 已交付，且 CMake 可安装 `bin/edge-vision-analyzer`。这是首个 Release 同样适用的前置条件。
+验收完成后按 [AGENTS.md](../AGENTS.md) 发布。任一 `v*` Tag 都要求 x86_64 构建及 CTest、云存储离线 pytest、aarch64 构建及打包。打 Tag 前确认云存储已有可运行测试、`deploy/edge-vision.service` 模板已在目标机验收，且 CMake 可安装 `bin/edge-vision-analyzer`。这是首个 Release 同样适用的前置条件。
 
 ### 4.1 `v0.1-oculus` — 视频采集、录片与基础控制面
 
@@ -350,7 +350,7 @@ FastAPI `POST /api/v1/events` 解码干净 JPEG，把图片写入 `cloud-storage
 - `src/streamer/stream_out_node.hpp` / `.cpp`。
 - `src/streamer/rtsp_pusher.hpp` / `.cpp`。
 - `src/main.cpp`：声明式 `BaseNode::attach_next()` 组装与 `SIGINT` / `SIGTERM` 优雅退出。
-- `deploy/edge-vision.service`、`scripts/deploy_to_box.sh`。
+- 在目标机验证已有 `deploy/edge-vision.service` 模板，并完成 `scripts/deploy_to_box.sh`。
 - `ApiServer` 补充 `GET /api/v1/snapshot.jpg` 和 `GET /api/v1/stream`。
 - `tests/test_streamer.cpp`，3～5 个离线用例。
 - 完善 `README.md`：架构图、部署步骤、实测性能指标表；发布／部署／现场验收结果分别记录。

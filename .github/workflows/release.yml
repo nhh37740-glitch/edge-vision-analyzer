@@ -44,7 +44,7 @@ jobs:
         run: |
           cmake --install build-arm64 --prefix staging
           test -x staging/bin/edge-vision-analyzer
-          install -D config/config.json staging/config/config.json
+          install -D config/config.example.json staging/config/config.example.json
           install -D deploy/edge-vision.service staging/deploy/edge-vision.service
           archive="edge-vision-analyzer-${RELEASE_TAG}-arm64.tar.gz"
           tar -czf "$archive" -C staging .

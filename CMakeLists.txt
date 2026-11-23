@@ -20,6 +20,7 @@ project(edge-vision-analyzer LANGUAGES NONE)
 # FFmpeg and other non-header-only third-party runtime libraries remain dynamic;
 # project STATIC module libraries do not imply a fully static executable.
 # Register real imported dependency target names when versions are selected.
+# Source-based dependencies must pin a concrete release tag, never main/master.
 
 # Future sole edge executable:
 #   edge-vision-analyzer: src/main.cpp only as its application entry point;

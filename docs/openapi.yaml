@@ -2,8 +2,8 @@ openapi: 3.0.3
 info:
   title: Edge Vision Analyzer 边缘与云存储 API
   version: 0.1.0
-  description: PATCH-003 两服务设计契约，全部端点待实现。每个路径单独绑定 servers；边缘 :8081 仅实时控制与流媒体，cloud-storage :8090 保存历史事件与图片。llama-server
-    :8080 是外部依赖，不在本 OpenAPI paths 中。
+  description: PATCH-003/007 两服务设计契约，全部端点待实现。服务仅在同一有线局域网通信；边缘:8081仅实时控制与流媒体，联想PC cloud-storage:8090保存历史事件与图片，llama-server:8080仅提供本地推理。不接公有云服务。每个路径单独绑定servers，外部llama-server不在本OpenAPI
+    paths中。
 tags:
 - name: v0.1-oculus
   description: 采集与基础控制面，待实现。
@@ -68,7 +68,7 @@ paths:
   /api/v1/config:
     get:
       operationId: getConfig
-      summary: 读取脱敏后的生效配置
+      summary: 读取当前生效配置
       tags:
       - v0.1-oculus
       x-implementation-status: planned
@@ -95,7 +95,7 @@ paths:
       x-implementation-status: planned
       responses:
         '200':
-          description: 返回更新后的完整生效配置，api_key 已脱敏。
+          description: 返回更新后的完整生效配置。
           content:
             application/json:
               schema:
@@ -123,7 +123,7 @@ paths:
                 cooldown_sec: 15
               storage:
                 enabled: true
-      description: v0.2-discern支持检测/LLM四项，v0.3-nous新增storage.enabled。不持久化修改磁盘配置；不支持改源、模型、线程数、密钥、端口、storage.endpoint或storage.timeout_sec。整份请求先校验后原子发布；任一字段失败则全部不变。
+      description: v0.2-discern支持检测/LLM四项，v0.3-nous新增storage.enabled。不持久化修改磁盘配置；不支持改源、模型、线程数、端口、storage.endpoint或storage.timeout_sec。整份请求先校验后原子发布；任一字段失败则全部不变。
     servers:
     - url: http://192.168.10.11:8081
       description: 魔百盒边缘实时控制与流媒体；此路径只属于边缘端。
@@ -381,7 +381,7 @@ components:
               example: INVALID_PARAMETER
             message:
               type: string
-              description: 简短错误说明；不包含凭据。
+              description: 简短错误说明；仅包含必要的错误详情。
               example: motion_mad_threshold must be between 0.0 and 255.0
           required:
           - code
@@ -421,7 +421,7 @@ components:
           - unknown
         endpoint:
           type: string
-          description: 不含凭据的上游 health 地址；LLM为:8080/health，Storage为:8090/health。
+          description: 上游 health 地址；LLM为:8080/health，Storage为:8090/health。
           format: uri
           example: http://192.168.10.10:8080/health
       required:
@@ -592,7 +592,7 @@ components:
       required:
       - end_grace_sec
       description: 仅保留活动事件结束宽限时间；边缘不保存历史事件表。
-    PublicLlmConfig:
+    LlmConfig:
       type: object
       additionalProperties: false
       properties:
@@ -603,12 +603,6 @@ components:
           type: string
           format: uri
           example: http://192.168.10.10:8080/v1/chat/completions
-        api_key:
-          type: string
-          description: 响应中始终脱敏；原始配置值不得从 API 返回。
-          enum:
-          - '***'
-          example: '***'
         model:
           type: string
           example: vlm-local
@@ -637,7 +631,6 @@ components:
       required:
       - enabled
       - endpoint
-      - api_key
       - model
       - prompt
       - cooldown_sec
@@ -678,7 +671,7 @@ components:
         event:
           $ref: '#/components/schemas/EventConfig'
         llm:
-          $ref: '#/components/schemas/PublicLlmConfig'
+          $ref: '#/components/schemas/LlmConfig'
         streamer:
           $ref: '#/components/schemas/StreamerConfig'
         storage:
@@ -690,7 +683,7 @@ components:
       - llm
       - streamer
       - storage
-      description: 当前生效配置的公开响应视图，字段覆盖 config/config.json；llm.api_key 始终为 ***。
+      description: 当前生效配置，字段覆盖config/config.example.json；运行参数来自被Git忽略的config/config.local.json。
     DetectorPatch:
       type: object
       additionalProperties: false
@@ -1027,7 +1020,7 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     InternalError:
-      description: 服务内部错误，例如文件或SQLite写入失败；采用统一Error且不暴露磁盘路径或凭据。
+      description: 服务内部错误，例如文件或SQLite写入失败；采用统一Error且不暴露磁盘路径。
       content:
         application/json:
           schema:

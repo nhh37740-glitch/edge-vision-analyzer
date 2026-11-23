@@ -24,7 +24,6 @@
   "llm": {
     "enabled": true,
     "endpoint": "http://192.168.10.10:8080/v1/chat/completions",
-    "api_key": "local-no-key",
     "model": "vlm-local",
     "prompt": "用一句简短的中文描述画面中人物正在做什么。",
     "cooldown_sec": 15,

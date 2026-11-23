@@ -1,6 +1,6 @@
 # Edge Vision Analyzer 架构
 
-状态：有效设计契约，全部业务能力待实现。维护：项目接力 Agent；日期：2026-11-23（北京时间）。PATCH-003 覆盖此前存储与历史事件查询设计，PATCH-005 补充模块构建与链接边界。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
+状态：有效设计契约，全部业务能力待实现。维护：项目接力 Agent；日期：2026-11-23（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护约束。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
 
 ## 1. 物理拓扑与三个服务入口
 
@@ -14,6 +14,8 @@
 ```
 
 所有设备接入同一有线局域网；手机与魔百盒不使用 USB 直连。手机扩展坞若有 PD 供电口，可独立供电并持续推流。实际延迟、稳定性与供电能力待现场验收。
+
+运行期只访问这三台设备在纯交换机 LAN 内的服务，不依赖公网或云厂商 API。可选路由器仅承担 DHCP 分配；手机、边缘和 PC 的地址／端口由本地配置给出，文档中的开源仓库链接不是运行期访问目标。
 
 - 交换机接上级路由器：三台设备通过 DHCP 获取同网段地址，按租约更新配置中的手机和 PC 地址。
 - 独立离线交换机：手动设置同网段静态 IP；纯交换机不提供 DHCP。示例联想 `192.168.10.10`、魔百盒 `192.168.10.11`、手机 `192.168.10.12`，掩码 `255.255.255.0`。离线局域网通信不需要网关和 DNS。
@@ -71,6 +73,8 @@ ApiServer :8081（实时控制、指标、快照、流；不提供历史查询�
 
 Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 以质量 **70** 在内存编码一次，Base64 在两个 HTTP 请求间复用；不把 OSD 图送入分析或保存。LLM 连接／读取超时默认 **3 / 25 秒**；失败将 `llm_summary` 置为 `""`，继续执行已开启的存储步骤。存储请求默认超时 **5 秒**，失败只记必要日志并释放当前任务；不重试、不补建磁盘队列、不阻塞视频线程。关闭 LLM 仍可保存原图与目标元数据；关闭 Storage 不影响推理和实时输出；两个开关都关闭时跳过 Nous 编码／HTTP 工作。
 
+每个事件任务完成全部已开启的投递步骤后，无论成功、失败、超时或提前退出，立即释放任务持有的 RGB／JPEG／Base64 图像缓冲、请求体及帧引用；队列丢旧同样释放旧任务。LLM 与 Storage 之间仅为复用同一 JPEG 保留必要数据，不在任务结束后沿用上一张图。不能仅调用保留大容量的 `clear()` 就声称已释放图像内存；由 RAII／作用域退出结束任务所有权，不增加异步清理线程或外部清理脚本。
+
 事件无目标宽限默认 **5 秒**，触发冷却默认 **15 秒**；连续目标只更新当前活跃状态，不逐帧投递。PC 接收的是触发时代表帧与结构化记录，不要求魔百盒留存历史或等待 PC 反向回填；历史列表以 PC 已成功接收的数据为准，不能宣称投递必达。
 
 ## 4. PC 云存储边界
@@ -121,7 +125,7 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 
 实时 MJPEG 仍只在观看或快照请求时编码，无请求时不编码；可选 RTSP 使用 `-preset ultrafast -tune zerolatency -b:v 500k`。Nous 的事件 JPEG 编码与实时 OSD 输出编码用途不同，不把两者混用。后续验收需包含关闭上游／超时降级、队列丢旧与释放、优雅退出及 RSS **<150MB**；指标以实测记录为准。
 
-初始化与 PATCH-003 的存储文档／骨架已交付，业务实现仍待联想宿主机接力。PATCH-005 仅补充已授权的工程骨架与交付契约；当前不编写 C++／Python 服务实现、不创建或运行单元测试、不在本机编译、不部署服务。变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；本次文档与工程骨架合并、分支同步后停止，后续业务开发须取得新的指令。静态检查与工作流定义均不等于业务构建或运行验收。
+初始化和既有工程骨架已交付，业务实现仍待联想宿主机接力。PATCH-007 本轮仅补充配置／文档与服务部署模板；不编写 C++／Python 服务实现、不创建或运行单元测试、不在本机编译、不实施部署。变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；本次契约合并、分支同步后停止，后续业务开发须取得新的指令。静态检查、工作流定义和部署模板均不等于业务构建或运行验收。
 
 ## 8. 模块构建与链接边界（PATCH-005）
 
@@ -142,3 +146,25 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 源模块落地后引入 `include(CTest)`，每个单测可执行文件仅直接链接 `edge_core`、`edge_common`、被测模块和 `GTest::gtest_main`；被测模块按上表带入自身必要依赖。`test_detector` 不链接 capture、主程序或 FFmpeg。交叉编译设置 `BUILD_TESTING=OFF`；工具链内容仍由后续 Issue #1 完成，本轮不填写。
 
 真实程序目标存在后添加 `install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)`，为 release 打包提供安装目录；当前不创建空目标或声称已经产出二进制。
+
+## 9. 配置、FFmpeg 生命周期与服务守护（PATCH-007）
+
+仓库只维护公开的 [config.example.json](../config/config.example.json) 模板。部署时先复制为 `config/config.local.json`，再填写实际手机／PC 地址、端口和必要凭据；本地文件受 Git 忽略，不把现场私有配置写回公开模板。边缘进程使用本地配置启动，`GET /api/v1/config` 仍按接口脱敏；配置文件分离不改变 REST 契约。
+
+FFmpeg 原生拥有型资源统一用 `std::unique_ptr<T, 自定义 deleter>` 管理，五类对象的释放方式与作用域如下。借用型指针不误纳入拥有型智能指针，异常、切源、重连和停止路径都由同一 RAII 所有权收尾。
+
+| 拥有型资源 | 自定义 deleter／释放语义 | 生命周期 |
+| --- | --- | --- |
+| `AVFormatContext` | 输入使用 [`avformat_close_input`](https://ffmpeg.org/doxygen/trunk/group__lavf__decoding.html)；显式 remux 的输出上下文另按输出 API 关闭 I/O 并 `avformat_free_context`，不可套用输入关闭器 | 输入源／录片会话结束、切换或重连时释放，不逐帧销毁 |
+| `AVCodecContext` | [`avcodec_free_context`](https://ffmpeg.org/doxygen/trunk/group__lavc__core.html) | 解码器会话结束／替换时释放 |
+| `AVFrame` | [`av_frame_free`](https://ffmpeg.org/doxygen/trunk/group__lavu__frame.html) | 对象可在解码循环复用，每帧转换／使用结束及时 `av_frame_unref`，离开对象作用域再 free |
+| `AVPacket` | [`av_packet_free`](https://ffmpeg.org/doxygen/trunk/group__lavc__packet.html) | 对象可在读取循环复用，每包解码／remux 使用结束及时 `av_packet_unref`，离开对象作用域再 free |
+| `SwsContext` | [`sws_freeContext`](https://ffmpeg.org/doxygen/trunk/group__libsws.html) | 缩放器会话结束或尺寸／格式改变时替换并释放 |
+
+`av_frame_unref`／`av_packet_unref` 释放当前引用的数据缓冲，不替代对象最终 free；也不能在其他处理步骤仍需该数据时提前 unref。其他三类管理对象按自身会话生命周期释放，不把“处理后立即释放”误写为每帧重建所有上下文。RGB `FrameMeta` 与任务图像的独立所有权、节点有界队列仍遵守前文约束。
+
+应用日志只写 stdout／stderr，不在魔百盒创建业务日志文件，不加入定时删除日志、帧或缓存的外部清理脚本。服务模板 [edge-vision.service](../deploy/edge-vision.service) 将标准输出与错误交给 journal，具体 journal 存储策略由部署配置负责；模板未安装，当前不声称目标机已运行或日志已接管。
+
+该模板采用工作目录 `/opt/edge-vision-analyzer`，规划启动命令为 `bin/edge-vision-analyzer --config /opt/edge-vision-analyzer/config/config.local.json`；`--config` 是后续程序必须实现并验收的 CLI 契约，当前没有业务程序可执行。安装文件和准备本地配置后，才在获准部署阶段启用服务。
+
+[`MemoryMax=300M`](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html) 是服务 cgroup 的 300 MiB 内存限制，无法在限制内回收时可能触发单元内 OOM 终止；它与业务目标 **RSS <150MB** 使用不同口径，不能替代业务内存优化或声称已经达到目标。[`Restart=always`](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html) 负责进程退出后的自动重启，仍受启动频率限制，显式停止服务时不会自动复起；它不是内存回收算法。RAII、有界队列、任务及时释放与 systemd 最后防线分别验收，不用杀进程或清理脚本代替资源管理。

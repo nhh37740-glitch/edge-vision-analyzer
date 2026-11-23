@@ -1,10 +1,10 @@
 # AGENTS.md — edge-vision-analyzer 开发契约
 
 ## 冷启动必读
-在写代码前，按顺序阅读本文件、`docs/architecture.md`、`docs/api.md`、`docs/roadmap.md`、`config/config.json`；接口机器契约见 `docs/openapi.yaml`，排障记录见 [docs/troubleshooting.md](docs/troubleshooting.md)。这些仓库文件是接力依据，不依赖聊天记录。执行范围以用户最新指令为准。
+在写代码前，按顺序阅读本文件、`docs/architecture.md`、`docs/api.md`、`docs/roadmap.md`、`config/config.example.json`；接口机器契约见 `docs/openapi.yaml`，排障记录见 [docs/troubleshooting.md](docs/troubleshooting.md)。这些仓库文件是接力依据，不依赖聊天记录。执行范围以用户最新指令为准。
 
-## 0. 初始化与接力边界（PATCH-001 至 PATCH-006）
-- PATCH-003 的无状态边缘与 PC 存储分工有效。PATCH-004/005 补充协作模板、GitHub Actions 和构建契约。PATCH-006 规定协作字数和踩坑分流。
+## 0. 初始化与接力边界（PATCH-001 至 PATCH-007）
+- PATCH-003 的无状态边缘与 PC 存储分工有效。PATCH-004/005 补充协作模板、GitHub Actions 和构建契约。PATCH-006 规定踩坑分流。PATCH-007 更新局域网运行、资源释放和中文协作约定。
 - 初始化交付为文档、配置和骨架。C++ 与 Python 服务实现、依赖工具链、实际单测和部署留待后续开发。当前只核验工作流和文件结构，初始化门禁允许空模块通过。发版前必须具备可全量构建和测试的源文件与打包输入。
 - 初始化文档和骨架通过绑定 Issue 的 PR 走 Squash 合并。合并后快进同步 `feature/capture`，核对远端 `main` 与该分支后停止。接手联想宿主机的 Agent 在收到后续开发指令后再实施业务功能。
 
@@ -15,7 +15,15 @@
 - **无状态边缘**：魔百盒仅保留实时处理所需的状态，历史事件与抓拍由联想 PC 持久化并查询。禁止在边缘实现历史事件环形表或失败帧落盘兜底。阶段 A 用户安排的取样截帧和 remux 录片属于显式验收动作，仍按路线图执行。
 - **异步投递**：`GenAiWorker` 对干净抓拍只编码一次。开启 LLM 时先获取摘要，失败使用空摘要。开启存储时投递同一 JPEG 与结构化结果，超时或失败后结束本次任务，视频流水线继续处理。
 - **云端事件留存**：`cloud-storage/` 单独维护 FastAPI、SQLite 和图片文件，与边缘编译无关。存储文件和抓拍只写联想 PC 的 Git 忽略目录，接口和 DDL 分别见 `docs/api.md` 与 `cloud-storage/schema.sql`。
+- **本地运行**：手机视频源、魔百盒、联想 PC 的推理与存储只在交换机局域网内通信，不接入公网云 API。仓库只提交 `config/config.example.json`，部署时复制为被 Git 忽略的 `config/config.local.json`。
 - **物理网络**：手机经 Type-C 以太网扩展坞、魔百盒和联想 PC 各自接入同一以太网交换机，不以 USB 直连手机与魔百盒。DHCP / 离线静态地址方案见 `docs/architecture.md`。
+
+### 魔百盒资源释放与日志
+
+- FFmpeg `AVFormatContext*`、`AVCodecContext*`、`AVFrame*`、`AVPacket*` 和 `SwsContext*` 均用带自定义 deleter 的 `std::unique_ptr` 托管。每次处理完 `AVFrame` 和 `AVPacket` 立即 `unref`，打开的格式、解码和转换上下文在切源或退出时按生命周期释放。禁止另启内存清理进程或脚本。
+- `GenAiWorker` 向联想 PC `:8090` 提交图片和结构化结果后，无论成功或失败，立即释放帧引用及 JPEG／Base64 缓冲。关闭存储时在当前处理步骤结束后释放。魔百盒不缓存失败结果，不积压重试。
+- 魔百盒程序只向 `stdout/stderr` 写日志，由 systemd 接管。禁止程序把日志文件写到魔百盒磁盘。
+- `deploy/edge-vision.service` 使用 `MemoryMax=300M`、`Restart=always` 兜底。日常常驻 RSS 目标仍为小于 150 MB。单元配置属于部署模板，须在目标机验收后使用。
 
 ## 2. 严格禁止事项（防过度防御与过度验证）
 必须遵守“够用即止”的工程原则，严禁出现以下行为：
@@ -33,16 +41,18 @@
 
 ## 4. 中文协作与问题分流（PATCH-006）
 
-Issue、PR、评审评论、Discussion 帖子与回复使用简洁中文。命令、路径、必要的原始报错和关联关键词可保留原文。
+Issue、PR、评审评论、Discussion 帖子与回复用通顺的中文和完整句子。说清谁做了什么，结果如何。不要写成电报体，不堆砌无关的缩写和黑话。命令、路径、必要的原始报错和关联关键词可保留原文。
+
+示例：“修复了视频读到末尾时没有重置解码器缓冲区的问题，本地循环播放测试已通过。”
 
 | 内容 | 上限与必填信息 |
 | --- | --- |
-| Issue 正文 | ≤ 300 字，不含代码块。有报错时只摘核心日志 10～15 行。 |
-| PR 描述 | ≤ 400 字。写明关联 Issue、改动清单和本地编译与单测结果。 |
-| Issue、PR、评审和 Discussion 的评论或回复 | ≤ 150 字。直接给结论和命令。 |
+| Issue 正文 | ≤ 400 字，不含代码块。有报错时只摘核心日志 10～15 行。 |
+| PR 描述 | ≤ 600 字。写明关联 Issue、改动清单和本地编译与单测结果。 |
+| Issue、PR、评审和 Discussion 的评论或回复 | ≤ 250 字。直接给结论和命令。 |
 | Discussion 踩坑记录 | ≤ 300 字。固定三段：现象与命令、根因（一句话）、解决命令。 |
 
-PR 首行的 Issue 关联规则继续生效。`pr-policy` 排除围栏代码块后统计剩余正文字符，超过 500 字符时阻止合并。PR 手写上限仍为 400 字。评论与回复的上限通过本契约执行。
+PR 首行的 Issue 关联规则继续生效。`pr-policy` 排除围栏代码块后统计剩余正文字符，超过 700 字符时阻止合并。PR 写作上限仍为 600 字。评论与回复的上限通过本契约执行。
 
 遇到问题按以下规则记录，不得静默绕过：
 
@@ -50,6 +60,7 @@ PR 首行的 Issue 关联规则继续生效。`pr-policy` 排除围栏代码块�
 2. 代码逻辑缺陷或阻塞当前任务的问题开 GitHub Issue，标签使用 `type:bug,agent-log`。按任务模板写明范围及验收标准，包括复现命令、关键报错、一句话根因和当前状态。修复 PR 首行写 `Fixes #<issue_id>`，合并时关闭对应 Issue。
 
 ## 5. Git 与发版规范
+- Commit 和 PR 标题使用 `<type>(<scope>): <中文说明>`，例如 `feat(capture): 实现 FFmpeg 拉流与本地录片`。
 - 一个 Issue 只对应一个模块的一项明确功能，或一个 `agent-log` 具体报错。使用 `.github/ISSUE_TEMPLATE/task.md` 写明涉及目录／文件和可验证的验收标准。禁止混入跨里程碑工作。实现按所列范围修改文件。
 - 一个 Issue 对应一个 PR。使用 `.github/pull_request_template.md`，正文首行写 `Closes #<issue_id>` 或 `Fixes #<issue_id>`。只关联当前仓库一个打开的 Issue，不能附带关闭其他 Issue 或提交无对应 Issue 的 PR。
 - **严禁直接向 `main` 分支提交或推送代码。**
@@ -87,3 +98,13 @@ PR 首行的 Issue 关联规则继续生效。`pr-policy` 排除围栏代码块�
 - `src/main.cpp` 只装配所需模块，最终构建单个 `edge-vision-analyzer`。业务 `.cpp` 留在各自静态库目标。通过目标声明链接和 include 路径。FFmpeg 等底层运行库保持动态链接。
 - 每个单测目标只直接链接 `edge_core`、`edge_common`、被测模块自身静态库和 `GTest::gtest_main`。被测模块可带入其自身依赖。例如 `test_detector` 不链接 FFmpeg、`edge_capture` 或主程序。
 - 交叉编译设置 `BUILD_TESTING=OFF`。真实主程序目标提供 `install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)` 供 Release 打包。当前根 CMake 文件只定义空工程和构建骨架。ARM64 工具链由后续 Issue #1 补齐。
+
+## 8. Codex 与人工代码审查
+
+每条评审评论用通顺的中文，最多 250 字。只报告内存泄漏、FFmpeg 或其他资源未释放、线程数据竞争或死锁、模块跨层违规依赖，以及 REST 或 SQLite 字段不匹配。说明问题发生的场景和后果。不要要求冗余的空指针或参数防御，也不要因无关文件的格式或个人命名偏好阻塞合并。
+
+## 9. 依赖、入库与格式
+
+- CMake 直接获取的第三方库必须指定明确的 Release Tag，禁止拉取 `main` 或 `master`。`cloud-storage/requirements.txt` 锁定主次版本，更新后验证离线用例。
+- 构建目录、视频、模型文件、`cloud-storage/storage/` 和 `config/config.local.json` 必须被 Git 忽略。离线测试素材也遵守视频大文件屏蔽规则，可在测试运行时生成小样本。
+- C++ 使用根 `.clang-format` 中的 Google 风格、4 空格缩进、100 列，格式化当前变更范围。
