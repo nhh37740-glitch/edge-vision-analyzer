@@ -20,7 +20,7 @@ paths:
       summary: 存活、节点线程与LLM/Storage上游健康状态
       tags:
       - v0.1-oculus
-      x-implementation-status: planned
+      x-implementation-status: implemented
       responses:
         '200':
           description: 成功。
@@ -46,7 +46,7 @@ paths:
       summary: 读取性能与资源统计
       tags:
       - v0.1-oculus
-      x-implementation-status: planned
+      x-implementation-status: implemented
       responses:
         '200':
           description: 成功。
@@ -72,7 +72,7 @@ paths:
       summary: 读取当前生效配置
       tags:
       - v0.1-oculus
-      x-implementation-status: planned
+      x-implementation-status: implemented
       responses:
         '200':
           description: 成功。
@@ -134,7 +134,7 @@ paths:
       summary: 在线切换手机流或本地视频源
       tags:
       - v0.1-oculus
-      x-implementation-status: planned
+      x-implementation-status: implemented
       responses:
         '200':
           description: 成功。

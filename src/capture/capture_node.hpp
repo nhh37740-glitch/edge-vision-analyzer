@@ -9,6 +9,7 @@
 
 #include "common/metrics.hpp"
 #include "core/base_node.hpp"
+#include "core/source_control.hpp"
 
 struct AVPacket;
 
@@ -20,7 +21,7 @@ class RemuxRecorder;
 // Pulls one HTTP/RTSP/local source with FFmpeg, converts frames to RGB24 and
 // emits them downstream. Source switching happens by fully opening the new
 // source before atomically replacing the current one.
-class CaptureNode : public BaseNode {
+class CaptureNode : public BaseNode, public SourceControl {
  public:
   struct Options {
     std::string source;
@@ -37,7 +38,9 @@ class CaptureNode : public BaseNode {
   CaptureNode(Options options, std::shared_ptr<Metrics> metrics);
   ~CaptureNode() override;
 
-  bool switch_source(const std::string& source, bool loop, std::string& error);
+  bool switch_source(const std::string& source, bool loop, std::string& error) override;
+  NodeState state() const override { return BaseNode::state(); }
+  const std::string& name() const override { return BaseNode::name(); }
   std::string source() const;
   bool loop() const;
   bool recording_finished() const { return recording_finished_.load(); }

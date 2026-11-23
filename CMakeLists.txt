@@ -15,6 +15,10 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
   libavformat libavcodec libavutil libswscale)
 find_path(STB_INCLUDE_DIR NAMES stb_image_write.h PATH_SUFFIXES stb REQUIRED)
+pkg_check_modules(HTTPLIB QUIET IMPORTED_TARGET cpp-httplib)
+if(NOT HTTPLIB_FOUND)
+  find_path(HTTPLIB_INCLUDE_DIR NAMES httplib.h REQUIRED)
+endif()
 
 add_library(edge_core STATIC
   src/core/base_node.cpp
@@ -39,13 +43,29 @@ add_library(edge_capture STATIC
 target_include_directories(edge_capture PRIVATE ${STB_INCLUDE_DIR})
 target_link_libraries(edge_capture PUBLIC edge_core edge_common PkgConfig::FFMPEG)
 
-# Future libraries keep their own sources and direct dependencies:
-#   edge_common    -> nlohmann_json::nlohmann_json
-#   edge_capture   -> edge_core, edge_common, FFmpeg, stb
+add_library(edge_api STATIC
+  src/api/api_server.cpp
+)
+if(HTTPLIB_FOUND)
+  # Ubuntu ships cpp-httplib as a compiled library plus a pkg-config file.
+  target_link_libraries(edge_api PUBLIC edge_core edge_common PkgConfig::HTTPLIB)
+else()
+  target_include_directories(edge_api PUBLIC ${HTTPLIB_INCLUDE_DIR})
+  target_link_libraries(edge_api PUBLIC edge_core edge_common)
+endif()
+if(WIN32)
+  target_link_libraries(edge_api PUBLIC ws2_32)
+endif()
+
+add_executable(edge-vision-analyzer src/main.cpp)
+target_link_libraries(edge-vision-analyzer PRIVATE
+  edge_core edge_common edge_capture edge_api)
+install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)
+
+# Remaining libraries keep their own sources and direct dependencies:
 #   edge_detector  -> edge_core, edge_common, NCNN
 #   edge_transport -> edge_core, edge_common, cpp-httplib, stb
 #   edge_streamer  -> edge_core, edge_common, stb
-#   edge_api       -> edge_core, edge_common, cpp-httplib
 # FFmpeg and other non-header-only third-party runtime libraries stay dynamic.
 
 if(BUILD_TESTING)
