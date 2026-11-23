@@ -2,7 +2,7 @@
 
 面向 2GB Armbian 魔百盒的无状态视频分析方案。魔百盒处理手机有线流、运动过滤、目标检测和实时推流，RSS 目标小于 150 MB。联想 PC 提供多模态推理，并独立保存历史事件和未加 OSD 的 JPEG 抓拍。
 
-**当前状态（北京时间 2026-11-23）**：仅初始化目录、配置与设计契约。已纳入 PATCH-001 至 PATCH-011，具备 GitHub Actions、顶层 CMake 骨架和实测台账。业务代码、工具链、单测和部署待实现。存储服务留待 `v0.3-nous`。
+**当前状态（北京时间 2026-11-23）**：初始化目录、配置与设计契约已完成，并已落地 C++17 构建骨架和 aarch64 交叉编译工具链（Issue #1）。已纳入 PATCH-001 至 PATCH-011，具备 GitHub Actions、基础单测和实测台账。采集、检测、推理、存储与部署业务仍待实现；存储服务留待 `v0.3-nous`。
 
 ## 接力入口
 
@@ -53,7 +53,21 @@ git switch feature/capture
 
 在阅读冷启动文件并收到后续开发指令后，再实现 `v0.1-oculus`。预建任务见 [GitHub Issues](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues)，阶段归档见 [Milestones](https://github.com/nhh37740-glitch/edge-vision-analyzer/milestones)。
 
-构建设计：联想 x86_64 Linux 支持本机离线测试构建，并交叉编译 aarch64 运行产物；魔百盒只运行，不编译大型依赖。根 [CMakeLists.txt](CMakeLists.txt) 已登记七个静态库的构建骨架。实际目标、`cmake/aarch64-toolchain.cmake` 和运行入口属于后续交付。正式构建命令随工具链 Issue 落地后补齐，测试不下载模型、不等待真实设备或推理。
+构建设计：联想 x86_64 Linux 支持本机离线测试构建，并交叉编译 aarch64 运行产物；魔百盒只运行，不编译大型依赖。根 [CMakeLists.txt](CMakeLists.txt) 已启用 C++17，当前可构建 `edge_core` 与 `test_build`，其余静态库、运行入口和安装规则随里程碑加入。`cmake/aarch64-toolchain.cmake` 使用 `aarch64-linux-gnu-g++`。
+
+```sh
+# 本机构建与离线单测
+cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build-native --parallel 2
+ctest --test-dir build-native --output-on-failure --no-tests=error
+
+# aarch64 交叉编译（不运行目标机测试）
+cmake -S . -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-toolchain.cmake -DBUILD_TESTING=OFF
+cmake --build build-arm64 --parallel 2
+```
+
+CI 基线（ubuntu-24.04）：CMake 3.31.6、Ninja 1.13.2、GCC 与 `aarch64-linux-gnu-g++` 13.3.0、GoogleTest 1.14.0；FFmpeg 库版本为 libavformat 60.16.100、libavcodec 60.31.102、libavutil 58.29.100、libswscale 7.5.100。测试不下载模型、不等待真实设备或推理。
 
 ## 仓库协作
 

@@ -1,43 +1,39 @@
 cmake_minimum_required(VERSION 3.20)
-project(edge-vision-analyzer LANGUAGES NONE)
+project(edge-vision-analyzer LANGUAGES CXX)
 
-# PATCH-005: module/link contract scaffold only; no C++ source targets exist yet.
-# Enable CXX in project(...) when the first approved source module lands.
-# Then resolve dependencies as imported targets and add only targets with actual,
-# explicitly listed sources. Do not glob every src/*.cpp into an executable.
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Future STATIC libraries and their direct dependency boundaries:
-#   edge_core      -> C++ standard library, Threads::Threads
+include(CTest)
+
+# Dependency boundaries are declared per target as modules land. Do not inject
+# FFmpeg or HTTP headers globally, and do not glob sources into the executable.
+find_package(Threads REQUIRED)
+
+add_library(edge_core STATIC
+  src/core/build_info.cpp
+  src/core/source_kind.cpp
+)
+target_include_directories(edge_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(edge_core PUBLIC Threads::Threads)
+
+# Future libraries keep their own sources and direct dependencies:
 #   edge_common    -> nlohmann_json::nlohmann_json
 #   edge_capture   -> edge_core, edge_common, FFmpeg
 #   edge_detector  -> edge_core, edge_common, NCNN
 #   edge_transport -> edge_core, edge_common, cpp-httplib, stb
 #   edge_streamer  -> edge_core, edge_common, stb
 #   edge_api       -> edge_core, edge_common, cpp-httplib
-# Each edge_* target owns only its matching src/<module>/ implementation.
-# Use target-specific include/link declarations; do not inject capture or FFmpeg
-# into core/common or every target through global link_libraries/include paths.
-# FFmpeg and other non-header-only third-party runtime libraries remain dynamic;
-# project STATIC module libraries do not imply a fully static executable.
-# Register real imported dependency target names when versions are selected.
-# Source-based dependencies must pin a concrete release tag, never main/master.
+# FFmpeg and other non-header-only third-party runtime libraries stay dynamic.
 
-# Future sole edge executable:
-#   edge-vision-analyzer: src/main.cpp only as its application entry point;
-#   links edge_core, edge_common, edge_capture, edge_detector, edge_transport,
-#         edge_streamer and edge_api. Implementation sources stay in their libs.
+if(BUILD_TESTING)
+  find_package(GTest REQUIRED)
+  add_executable(test_build tests/test_build.cpp)
+  target_link_libraries(test_build PRIVATE edge_core GTest::gtest_main)
+  add_test(NAME test_build COMMAND test_build)
+endif()
 
-# Future native/offline tests: include(CTest) after CXX and real targets exist.
-# Under if(BUILD_TESTING), each test executable links only:
-#   test_capture   -> edge_core, edge_common, edge_capture, GTest::gtest_main
-#   test_detector  -> edge_core, edge_common, edge_detector, GTest::gtest_main
-#   test_transport -> edge_core, edge_common, edge_transport, GTest::gtest_main
-#   test_streamer  -> edge_core, edge_common, edge_streamer, GTest::gtest_main
-# Keep each module's transitive dependencies within the map above. In particular,
-# test_detector must not link edge_capture, the app executable, or FFmpeg.
-# Cross builds use -DBUILD_TESTING=OFF; toolchain implementation is deferred to #1.
-
-# Add the following install rule only after the real executable target exists:
-# install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)
-# Release packaging will consume this install layout. Do not add an empty binary
-# target, FetchContent downloads, tests, toolchain contents or build actions here.
+# The sole executable and its install rule are added when src/main.cpp lands.
+# Cross builds use -DBUILD_TESTING=OFF; cmake/aarch64-toolchain.cmake selects
+# the aarch64 cross compiler.
