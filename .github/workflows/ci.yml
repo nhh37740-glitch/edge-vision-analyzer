@@ -92,59 +92,14 @@ jobs:
     permissions:
       pull-requests: read
     outputs:
-      edge_cpp: ${{ steps.filter.outputs.edge_cpp }}
       cloud_storage: ${{ steps.filter.outputs.cloud_storage }}
     steps:
       - uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
-            edge_cpp:
-              - 'src/**'
-              - 'tests/**'
-              - 'CMakeLists.txt'
-              - 'cmake/**'
             cloud_storage:
               - 'cloud-storage/**'
-
-  edge-cpp:
-    name: edge-cpp
-    needs: changes
-    if: ${{ needs.changes.outputs.edge_cpp == 'true' }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Detect C++ sources beyond the initial skeleton
-        id: sources
-        shell: bash
-        run: |
-          if find src tests -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.c' -o -name '*.hpp' -o -name '*.hh' -o -name '*.hxx' -o -name '*.h' \) -print -quit | grep -q .; then
-            echo 'present=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'present=false' >> "$GITHUB_OUTPUT"
-            echo 'Initial skeleton has no C++ sources; no C++ build is run.'
-          fi
-      - name: Install native dependencies
-        if: steps.sources.outputs.present == 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libstb-dev libgtest-dev nlohmann-json3-dev libcpp-httplib-dev
-      - name: Record toolchain and dependency versions
-        if: steps.sources.outputs.present == 'true'
-        run: |
-          cmake --version | head -1
-          ninja --version
-          g++ --version | head -1
-          pkg-config --modversion libavformat libavcodec libavutil libswscale
-          dpkg-query -W -f='${Package} ${Version}\n' libgtest-dev
-      - name: Native CMake build and offline CTest
-        if: steps.sources.outputs.present == 'true'
-        run: |
-          cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-          cmake --build build-native --parallel 2
-          ctest --test-dir build-native --output-on-failure --no-tests=error
 
   cloud-storage:
     name: cloud-storage
@@ -185,7 +140,7 @@ jobs:
 
   ci-gate:
     name: ci-gate
-    needs: [pr-policy, changes, edge-cpp, cloud-storage]
+    needs: [pr-policy, changes, cloud-storage]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     permissions: {}
@@ -201,7 +156,7 @@ jobs:
           for job in ('pr-policy', 'changes'):
               if needs[job]['result'] != 'success':
                   raise SystemExit(f"{job} did not succeed: {needs[job]['result']}")
-          for job, flag in (('edge-cpp', 'edge_cpp'), ('cloud-storage', 'cloud_storage')):
+          for job, flag in (('cloud-storage', 'cloud_storage'),):
               selected = needs['changes']['outputs'].get(flag)
               if selected not in ('true', 'false'):
                   raise SystemExit(f'Invalid or missing change-filter output: {flag}')

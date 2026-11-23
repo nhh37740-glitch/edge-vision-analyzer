@@ -81,7 +81,7 @@ PR 首行的 Issue 关联规则继续生效。`pr-policy` 排除围栏代码块�
 - **严禁直接向 `main` 分支提交或推送代码。**
 - 分支命名：`feature/<module>`、`fix/<issue-id>`。
 - 常规 C++ 开发提交前做两步验证：`cmake --build` 编译通过 + `ctest --output-on-failure` 通过。验证通过即可提 PR，不要重复多轮多余检查。
-- `main` 的唯一必需状态检查是 `ci-gate`。所有指向 `main` 的 PR 均运行策略和改动识别，边缘及存储检查按改动范围启动。CI 流程见 `.github/workflows/ci.yml`。
+- `main` 的唯一必需状态检查是 `ci-gate`。所有指向 `main` 的 PR 均运行策略和改动识别，云存储检查按改动范围启动；C++ 构建不进入 PR CI，由提交前的本地验证承担。CI 流程见 `.github/workflows/ci.yml`。
 - 里程碑发版 Tag 为 `v0.1-oculus` → `v0.2-discern` → `v0.3-nous` → `v1.0-vox`。`v*` Tag 触发全量测试、ARM64 构建和 Release 附件上传。发版 Commit 必须提供全部构建、测试和打包输入，包括 `deploy/edge-vision.service`。初始化阶段不打发版 Tag。
 
 
@@ -113,7 +113,7 @@ PR 首行的 Issue 关联规则继续生效。`pr-policy` 排除围栏代码块�
 - `src/main.cpp` 只装配所需模块，最终构建单个 `edge-vision-analyzer`。业务 `.cpp` 留在各自静态库目标。通过目标声明链接和 include 路径。FFmpeg 等底层运行库保持动态链接。
 - 每个单测目标只直接链接 `edge_core`、`edge_common`、被测模块自身静态库和 `GTest::gtest_main`。被测模块可带入其自身依赖。例如 `test_detector` 不链接 FFmpeg、`edge_capture` 或主程序。
 - 交叉编译设置 `BUILD_TESTING=OFF`。真实主程序目标提供 `install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)` 供 Release 打包。根 CMake 文件已启用 C++17，并由 Issue #1 落地 `edge_core`、`test_build` 和 aarch64 工具链；其余静态库与运行目标随对应里程碑加入。
-- 常规 PR 的 `ci-gate` 只要求本机构建与离线 CTest；aarch64 交叉编译在 `v*` Tag 的 Release 工作流执行，避免每个 PR 重复安装目标架构依赖。
+- 常规 PR 的 `ci-gate` 不运行 C++ 构建；C++ 变更必须在提交前本地通过 `cmake --build` 与 `ctest`。完整本机构建、CTest 与 aarch64 交叉编译由 `v*` Tag 的 Release 工作流执行，避免每个 PR 重复安装依赖。
 
 ## 8. Codex 与人工代码审查
 

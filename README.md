@@ -67,8 +67,8 @@ cmake -S . -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build build-arm64 --parallel 2
 ```
 
-常规 PR 的 CI 基线（ubuntu-24.04）：CMake 3.31.6、Ninja 1.13.2、GCC 13.3.0、GoogleTest 1.14.0；FFmpeg 库版本为 libavformat 60.16.100、libavcodec 60.31.102、libavutil 58.29.100、libswscale 7.5.100。aarch64 交叉编译只在 `v*` Tag 的 Release 工作流执行，避免每个 PR 重复安装目标架构依赖。测试不下载模型、不等待真实设备或推理。
+本机构建基线（ubuntu-24.04／MSYS2 UCRT64）：CMake 3.31.6、Ninja 1.13.2、GCC 13.3.0、GoogleTest 1.14.0；FFmpeg 库版本为 libavformat 60.16.100、libavcodec 60.31.102、libavutil 58.29.100、libswscale 7.5.100。常规 PR 的 `ci-gate` 不运行 C++ 构建，C++ 变更在提交前本地完成构建与 CTest；aarch64 交叉编译和完整测试只在 `v*` Tag 的 Release 工作流执行。测试不下载模型、不等待真实设备或推理。
 
 ## 仓库协作
 
-仓库公开，只上传本项目契约与骨架。初始提交之后所有修改经 PR，仓库仅允许 Squash and merge，并自动删除合并后的分支。main 保护及状态检查接入约定见 [AGENTS.md](AGENTS.md)；`ci-gate` 是主线唯一必需检查。PR 还会运行 DeepSeek 自动评审，作为辅助信息，不替代 `ci-gate`；评审密钥保存在 GitHub Actions Secrets，不写入仓库。边缘和存储分支检查按改动启用，发版流程需具备全部构建、测试和打包输入。发行包提供配置模板，部署时创建自己的 `config/config.local.json`。联想宿主机从与 `main` 同步的 `feature/capture` 接力。
+仓库公开，只上传本项目契约与骨架。初始提交之后所有修改经 PR，仓库仅允许 Squash and merge，并自动删除合并后的分支。main 保护及状态检查接入约定见 [AGENTS.md](AGENTS.md)；`ci-gate` 是主线唯一必需检查。PR 还会运行 DeepSeek 自动评审，作为辅助信息，不替代 `ci-gate`；评审密钥保存在 GitHub Actions Secrets，不写入仓库。边缘和存储分支检查按改动启用，其中 C++ 构建由本地验证承担；发版流程需具备全部构建、测试和打包输入。发行包提供配置模板，部署时创建自己的 `config/config.local.json`。联想宿主机从与 `main` 同步的 `feature/capture` 接力。
