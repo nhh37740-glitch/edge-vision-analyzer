@@ -1,6 +1,6 @@
 # Edge Vision Analyzer 架构
 
-状态：有效设计契约；v0.1 核心框架、采集模块与控制面已实现，v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）与 NcnnDetectorNode（NCNN 目标检测与 NMS）模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现，以上模块已由 `src/main.cpp` 接入端到端运行入口；PC 存储服务已实现，部署脚本与模板已就绪，真机验收待执行。维护：项目接力 Agent；日期：2026-11-24（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集及 PC 日志落盘／查询，PATCH-009 补充部署对时与温度观测。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
+状态：有效设计契约；v0.1 核心框架、采集模块与控制面（health、stats、config 读取与 source-switch）已实现，v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）与 NcnnDetectorNode（NCNN 目标检测与 NMS）模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现；以上模块已由 `src/main.cpp` 接入端到端运行入口。PC 云存储服务（FastAPI + SQLite）与 LLM/Storage 上游探活已实现，部署脚本与模板已就绪；PATCH config 热更新尚未实现，真机验收待执行。维护：项目接力 Agent；日期：2026-11-24（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集及 PC 日志落盘／查询，PATCH-009 补充部署对时与温度观测。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
 
 ## 1. 物理拓扑与三个服务入口
 
@@ -79,9 +79,9 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 
 ## 4. PC 云存储边界
 
-`cloud-storage/` 与魔百盒 C++ 交叉编译完全解耦。本轮仅落盘 [README](../cloud-storage/README.md)、[requirements.txt](../cloud-storage/requirements.txt)、[schema.sql](../cloud-storage/schema.sql) 及空服务占位；FastAPI `server.py` 实现在 `v0.3-nous` 后续开发完成。运行时 `cloud-storage/storage/` 整体忽略，不将图片、SQLite 数据库及其运行文件入库。
+`cloud-storage/` 与魔百盒 C++ 交叉编译完全解耦。FastAPI `server.py` 已实现 `GET /health`、事件接收与分页、图片读取及日志接收／查询，SQLite 表与索引以 [schema.sql](../cloud-storage/schema.sql) 为准，并有离线 pytest 覆盖；运行时 `cloud-storage/storage/` 整体忽略，不将图片、SQLite 数据库及其运行文件入库。
 
-- 未来 `POST /api/v1/events` 解码 `image_base64`，把原始干净 JPEG 写至 `cloud-storage/storage/images/YYYY-MM-DD/<event_id>.jpg`，结构化元数据和相对路径写入 `cloud-storage/storage/events.db`。
+- `POST /api/v1/events` 解码 `image_base64`，把原始干净 JPEG 写至 `cloud-storage/storage/images/YYYY-MM-DD/<event_id>.jpg`，结构化元数据和相对路径写入 `cloud-storage/storage/events.db`。
 - SQLite 字段与索引正式依据为 `schema.sql`：`event_id` 主键，帧号、时间、最高置信度目标、目标 JSON、可空描述、LLM 耗时、图片相对路径和创建时间；不保存边缘历史队列。
 - 历史 `GET /api/v1/events?limit=20&offset=0` 与 `GET /api/v1/images/{date}/{filename}` 仅由 PC `:8090` 提供；日期目录、排序、分页、URL、错误及重复 ID 的语义统一见 [api](api.md) / [OpenAPI](openapi.yaml)。边缘 `:8081` 不代理历史接口。
 - `GET /health` 反映云存储数据库连通状态；边缘 `/api/v1/health` 分别反映 LLM 与 Storage 可达性，不把 LLM 存活等同于存储可用。
@@ -202,12 +202,12 @@ systemd-journald（默认 namespace）
 
 ### 10.2 PC 接收、存储与查询
 
-未来 PC `cloud-storage :8090` 的 `POST /api/v1/logs` 接收 Fluent Bit JSON 数组，将每个记录序列化为一行紧凑 JSON，追加至 `cloud-storage/storage/logs/YYYY-MM-DD.log`。文件日期按 **PC 接收到批次时的 UTC 日期** 计算，区别于事件图片按入库生效的 `timestamp_ms` 取日（异常时间按 API 契约回退至 PC 当前时间）；日志文件不写魔百盒，也不插入 `events` 表。运行日志与图片／数据库一起处于 Git 忽略的 `cloud-storage/storage/` 下。
+PC `cloud-storage :8090` 的 `POST /api/v1/logs` 接收 Fluent Bit JSON 数组，将每个记录序列化为一行紧凑 JSON，追加至 `cloud-storage/storage/logs/YYYY-MM-DD.log`。文件日期按 **PC 接收到批次时的 UTC 日期** 计算，区别于事件图片按入库生效的 `timestamp_ms` 取日（异常时间按 API 契约回退至 PC 当前时间）；日志文件不写魔百盒，也不插入 `events` 表。运行日志与图片／数据库一起处于 Git 忽略的 `cloud-storage/storage/` 下。
 
-`GET /api/v1/logs` 返回 PC 上指定 UTC 日期文件的最后 N 行，可用当天日期读取当日日志；不会向魔百盒回查。`date`、`tail` 参数、行数范围、返回媒体类型、空文件／缺失文件和错误语义统一以 [api.md](api.md) / [OpenAPI](openapi.yaml) 为准，不在架构另立一套响应。两项接口均属于后续 Python 服务实现，本轮只维护契约与模板。
+`GET /api/v1/logs` 返回 PC 上指定 UTC 日期文件的最后 N 行，可用当天日期读取当日日志；不会向魔百盒回查。`date`、`tail` 参数、行数范围、返回媒体类型、空文件／缺失文件和错误语义统一以 [api.md](api.md) / [OpenAPI](openapi.yaml) 为准，不在架构另立一套响应。两项接口已由 PC `:8090` 的 Python 服务实现，并在临时目录离线用例中验证。
 
 ## 部署前对时与探活（PATCH-009）
 
 魔百盒没有可维持时钟的 RTC 电池时，离线重启可能丢失正确时间。部署流程先通过 SSH 用联想 PC 的系统时间对时，再重启边缘服务。若仍收到异常的事件时间，PC 存储服务按 [API 契约](api.md) 以接收时刻作为事件时间戳，并据此选择图片日期目录。
 
-[scripts/deploy_to_box.sh](../scripts/deploy_to_box.sh) 和 [scripts/start_pc_services.sh](../scripts/start_pc_services.sh) 是后续部署与启动说明的占位。目标机的发行版和运行库基线在部署前读取。持续推理时可从边缘统计观察 SoC 温度，手动处理实测过热；已知限制见 [踩坑记录](troubleshooting.md)。
+[scripts/deploy_to_box.sh](../scripts/deploy_to_box.sh) 已实现部署流程；[scripts/start_pc_services.sh](../scripts/start_pc_services.sh) 仍是启动流程的占位。目标机的发行版和运行库基线在部署前读取。持续推理时可从边缘统计观察 SoC 温度，手动处理实测过热；已知限制见 [踩坑记录](troubleshooting.md)。

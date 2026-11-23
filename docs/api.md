@@ -1,8 +1,8 @@
 # Edge Vision Analyzer — 双服务 API 契约
 
-状态：有效设计契约；`v0.1-oculus` 的 health、stats、config 读取与 source-switch 四个操作已实现并在本机回环验证，仅 PATCH config 待实现。维护责任：项目维护 Agent。更新日期：2026-11-24（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
+状态：有效设计契约；`v0.1-oculus` 的 health、stats、config 读取与 source-switch，`v1.0-vox` 的 snapshot 与 stream，以及 `v0.3-nous` 的云存储 health/events/images/logs 均已实现；仅 PATCH config 待实现。边缘端点已在本机回环与离线用例验证，云存储由离线 pytest 覆盖，真机验收待执行。维护责任：项目维护 Agent。更新日期：2026-11-24（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
 
-本轮不宣称真机验收；已实现范围仅指本机回环验证。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
+本轮不宣称真机验收；已实现范围仅指本机回环与离线用例验证。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
 
 ## 1. 两个服务的地址与职责
 
@@ -127,7 +127,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 }
 ```
 
-`PATCH :8081/api/v1/config` 使用嵌套结构：
+`PATCH :8081/api/v1/config` 尚未实现；以下为规划契约，使用嵌套结构：
 
 ```json
 {
@@ -137,7 +137,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 }
 ```
 
-仅允许五个叶子字段：`detector.motion_mad_threshold`（0..255）、`detector.conf_threshold`（0..1）、`llm.enabled`（布尔）、`llm.cooldown_sec`（非负秒数）、`storage.enabled`（布尔）。原四项在 `v0.2-discern` 实现，存储开关于 `v0.3-nous` 接入。可只提交一个字段；拒绝空对象、未知字段、错误类型及范围错误，返回 400。
+仅允许五个叶子字段：`detector.motion_mad_threshold`（0..255）、`detector.conf_threshold`（0..1）、`llm.enabled`（布尔）、`llm.cooldown_sec`（非负秒数）、`storage.enabled`（布尔）。原四项规划在 `v0.2-discern` 支持，存储开关规划于 `v0.3-nous` 接入。可只提交一个字段；拒绝空对象、未知字段、错误类型及范围错误，返回 400。
 
 先验证整份请求，再无锁发布不可变配置快照；任一字段失败则全部不变。成功返回 200 和完整生效配置，不持久化到磁盘。视频源走专用切源接口；模型、线程数、端口以及 `storage.endpoint/storage.timeout_sec` 仅静态配置，不能热更。
 
@@ -205,7 +205,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 
 全部字段必填；LLM 关闭、超时或失败时 `llm_summary` 为空字符串，不影响后续存储。`image_base64` 是同一份未经 OSD 绘制的干净 JPEG 的 Base64 原文，不带 Data URI 前缀。框坐标归一化至 `[0,1]`，置信度为 `[0,1]`，目标框内 `class_id` 可选。
 
-为处理魔百盒尚未对时的事件，服务端按以下待实现契约确定一次 **有效 `timestamp_ms`**：
+为处理魔百盒尚未对时的事件，服务端按以下契约确定一次 **有效 `timestamp_ms`**：
 
 - 入站字段必填，必须是非负 `int64` 整数；`0` 是合法输入。缺失、负值、字符串、非整数、布尔值或超出 `int64` 范围返回 400，不作为未对时兜底。
 - 对合法输入，若 `timestamp_ms < 1735689600000`（即早于 **2025-01-01T00:00:00Z**），使用联想 PC 接收本次请求时取得的当前 Unix 毫秒；该接收时间只取一次。晚于 `9999-12-31T23:59:59.999Z`、无法生成四位年份图片目录的合法整数也使用同一兜底。
