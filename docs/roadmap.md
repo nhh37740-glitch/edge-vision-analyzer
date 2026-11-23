@@ -262,7 +262,7 @@ class BaseNode {
 | --- | --- | --- | --- |
 | `v0.1-oculus` | Oculus，神目／视觉 | 接入手机有线流和本地循环视频，完成采集与基础控制面 | 已实现（本机回环与离线验证）；真机阶段 A 与发版待补 |
 | `v0.2-discern` | Discern，洞察／明辨 | 帧差漏斗与 NCNN 端侧目标检测 | 已实现（未接入运行入口） |
-| `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 事件聚合与异步投递已实现（未接入运行入口），PC 存储服务已实现；真机验收待补 |
+| `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 事件聚合与异步投递已实现（未接入运行入口），LLM 量化选型已实现，PC 存储服务已实现；真机验收待补 |
 | `v1.0-vox` | Vox，神谕之声／宣示 | OSD、MJPEG／RTSP、systemd 守护交付 | 模块与部署脚本／模板已就绪；运行入口组装与真机验收待补 |
 
 验收完成后按 [AGENTS.md](../AGENTS.md) 发布。任一 `v*` Tag 都要求 x86_64 构建及 CTest、云存储离线 pytest、aarch64 构建及打包。打 Tag 前确认云存储已有可运行测试、`deploy/edge-vision.service` 模板已在目标机验收，且 CMake 可安装 `bin/edge-vision-analyzer`。这是首个 Release 同样适用的前置条件。
@@ -335,6 +335,7 @@ class BaseNode {
 - 实现 [start_pc_services.sh](../scripts/start_pc_services.sh)，在联想 PC 启动并分别探活 `llama-server :8080` 与 `cloud-storage :8090`。脚本最多 50 行，本轮已提交注释占位。
 - `src/transport/event_tracker_node.hpp` / `.cpp`：仅当前活跃事件的瞬时聚合状态和触发节流。（已实现，未接入运行入口）
 - `src/transport/jpeg_base64.hpp` / `.cpp`：干净 JPEG 一次内存编码与 Base64 复用。（已实现）
+- `src/transport/llm_selection.hpp` / `.cpp`：按配置档位、可用模型列表、显存与读取超时选择 LLM 模型别名，不可用时回退基础 `llm.model`；`tests/test_llm_selection.cpp` 覆盖 4 个离线用例。（已实现）
 - `src/transport/genai_worker.hpp` / `.cpp`：单后台线程、队列 1，顺序执行可选 LLM 和可选 Storage HTTP。（已实现，未接入运行入口）
 - 更新边缘健康接口，分别报告 LLM `:8080` 与 Storage `:8090` 状态；在配置热更新中接入 `storage.enabled`。边缘 `:8081` 不提供历史事件列表。
 - `cloud-storage/server.py` 已实现为联想 PC 独立 FastAPI + SQLite 进程，监听 `:8090`，与 `llama-server :8080` 和 C++ ARM64 构建解耦。
@@ -359,7 +360,7 @@ class BaseNode {
 
 所有 HTTP 等待发生在 Nous 单工作线程；采集、检测与实时输出不等待请求结果。视频链路输入队列容量 2、Nous 待处理容量 1 均满则丢旧，处理完成或丢弃后及时释放图像引用。魔百盒 RSS 硬约束为 **<150MB**，后续以实测验收；本轮不声称已达标。
 
-严格消费联想 PC 的原生 `GET /health` 和 `POST /v1/chat/completions`，不修改上游服务端。图像为 `data:image/jpeg;base64,...`，请求遵循 OpenAI Vision 消息结构，使用配置中的模型与中文提示词；启动规格的请求参数为 `max_tokens: 128`、`temperature: 0.2`。解析 `choices[0].message.content`，精确请求格式见 [api.md](api.md)。
+严格消费联想 PC 的原生 `GET /health` 和 `POST /v1/chat/completions`，不修改上游服务端。图像为 `data:image/jpeg;base64,...`，请求遵循 OpenAI Vision 消息结构，使用配置中的模型与中文提示词；启动规格的请求参数为 `max_tokens: 128`、`temperature: 0.2`。请求的 `model` 先经 `llm_selection` 选型：启动时用 `GET /v1/models` 探测可用别名（失败视为未限制），`auto` 按 q8、q5、q4 顺序选择可用、显存足够且不超过 `read_timeout_sec` 的别名（0 表示显存未知），显式档位不可用或显存不足时回退基础 `llm.model`。解析 `choices[0].message.content`，精确请求格式见 [api.md](api.md)。
 
 **PC 存储／查询内部契约：**
 

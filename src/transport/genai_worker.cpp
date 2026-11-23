@@ -33,13 +33,53 @@ Endpoint split_endpoint(const std::string& endpoint) {
 }  // namespace
 
 GenAiWorker::GenAiWorker(LlmConfig llm, StorageConfig storage)
-    : llm_(std::move(llm)), storage_(std::move(storage)) {}
+    : GenAiWorker(std::move(llm), std::move(storage), LlmResources{}) {}
+
+GenAiWorker::GenAiWorker(LlmConfig llm, StorageConfig storage, LlmResources llm_resources)
+    : llm_(std::move(llm)),
+      storage_(std::move(storage)),
+      selection_(select_llm_model(llm_, llm_resources)),
+      resources_injected_(!llm_resources.available_models.empty()) {}
 
 GenAiWorker::~GenAiWorker() { stop(); }
+
+LlmResources GenAiWorker::probe_llm_resources() const {
+  LlmResources resources;
+  const Endpoint endpoint = split_endpoint(llm_.endpoint);
+  httplib::Client client(endpoint.base);
+  client.set_connection_timeout(llm_.connect_timeout_sec, 0);
+  client.set_read_timeout(llm_.read_timeout_sec, 0);
+  client.set_write_timeout(llm_.read_timeout_sec, 0);
+
+  // llama-server exposes loaded aliases here; any failure leaves the list
+  // unknown and selection falls back to the configured aliases.
+  const auto response = client.Get("/v1/models");
+  if (!response || response->status != 200) {
+    return resources;
+  }
+  try {
+    const nlohmann::json parsed = nlohmann::json::parse(response->body);
+    const auto& models = parsed.at("data");
+    if (!models.is_array()) {
+      return resources;
+    }
+    for (const auto& model : models) {
+      if (model.contains("id") && model.at("id").is_string()) {
+        resources.available_models.push_back(model.at("id").get<std::string>());
+      }
+    }
+  } catch (const std::exception&) {
+    resources.available_models.clear();
+  }
+  return resources;
+}
 
 void GenAiWorker::start() {
   if (running_.exchange(true)) {
     return;
+  }
+  if (!resources_injected_) {
+    selection_ = select_llm_model(llm_, probe_llm_resources());
   }
   worker_ = std::thread([this] { run(); });
 }
@@ -185,7 +225,7 @@ bool GenAiWorker::request_llm(const std::string& image_base64, std::string& summ
       {{"type", "image_url"},
        {"image_url", {{"url", "data:image/jpeg;base64," + image_base64}}}});
   nlohmann::json body = {
-      {"model", llm_.model},
+      {"model", selection_.model_alias},
       {"max_tokens", 128},
       {"temperature", 0.2},
       {"messages", nlohmann::json::array(

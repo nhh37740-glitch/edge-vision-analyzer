@@ -25,6 +25,12 @@
     "enabled": true,
     "endpoint": "http://192.168.10.10:8080/v1/chat/completions",
     "model": "vlm-local",
+    "quantization": "auto",
+    "model_candidates": {
+      "q8": "vlm-local-q8",
+      "q5": "vlm-local-q5",
+      "q4": "vlm-local-q4"
+    },
     "prompt": "用一句简短的中文描述画面中人物正在做什么。",
     "cooldown_sec": 15,
     "connect_timeout_sec": 3,

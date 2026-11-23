@@ -1,6 +1,7 @@
 #pragma once
 
 #include <nlohmann/json.hpp>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -32,7 +33,12 @@ struct EventConfig {
 struct LlmConfig {
   bool enabled = false;
   std::string endpoint;
+  // Base alias used when quantization is "none" or a tier falls back.
   std::string model;
+  // Tier preference: auto, q8, q5, q4 or none.
+  std::string quantization = "auto";
+  // Optional tier -> llama-server model alias mapping.
+  std::map<std::string, std::string> model_candidates;
   std::string prompt;
   int cooldown_sec = 15;
   int connect_timeout_sec = 3;

@@ -11,6 +11,7 @@
 #include "common/config.hpp"
 #include "core/bounded_queue.hpp"
 #include "core/frame_meta.hpp"
+#include "transport/llm_selection.hpp"
 
 namespace edge {
 
@@ -51,6 +52,8 @@ struct GenAiStats {
 class GenAiWorker {
  public:
   GenAiWorker(LlmConfig llm, StorageConfig storage);
+  // Injected resources skip the startup /v1/models probe.
+  GenAiWorker(LlmConfig llm, StorageConfig storage, LlmResources llm_resources);
   ~GenAiWorker();
 
   GenAiWorker(const GenAiWorker&) = delete;
@@ -64,18 +67,23 @@ class GenAiWorker {
   bool submit(GenAiTask task);
 
   bool running() const { return running_.load(); }
+  const std::string& selected_model() const { return selection_.model_alias; }
+  const std::string& selected_quantization() const { return selection_.quantization; }
   GenAiStats stats() const;
   GenAiResult last_result() const;
 
  private:
   void run();
   void handle(GenAiTask task);
+  LlmResources probe_llm_resources() const;
   bool request_llm(const std::string& image_base64, std::string& summary);
   bool send_storage(const GenAiTask& task, const std::string& image_base64,
                     const std::string& summary, double latency_ms) const;
 
   LlmConfig llm_;
   StorageConfig storage_;
+  LlmSelection selection_;
+  bool resources_injected_ = false;
   BoundedQueue<GenAiTask> queue_{1};
   std::thread worker_;
   std::atomic<bool> running_{false};

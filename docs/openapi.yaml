@@ -690,6 +690,41 @@ components:
         model:
           type: string
           example: vlm-local
+          description: 未量化或回退时使用的 llama-server 模型别名。
+        quantization:
+          type: string
+          enum:
+          - auto
+          - q8
+          - q5
+          - q4
+          - none
+          default: auto
+          description: 量化档位偏好；auto 依次尝试 q8、q5、q4，不可用时回退 model。
+        model_candidates:
+          type: object
+          description: 量化档位到 llama-server 模型别名的映射，仅允许这五个档位键。
+          additionalProperties: false
+          properties:
+            auto:
+              type: string
+              minLength: 1
+            q8:
+              type: string
+              minLength: 1
+            q5:
+              type: string
+              minLength: 1
+            q4:
+              type: string
+              minLength: 1
+            none:
+              type: string
+              minLength: 1
+          example:
+            q8: vlm-local-q8
+            q5: vlm-local-q5
+            q4: vlm-local-q4
         prompt:
           type: string
           example: 用一句简短的中文描述画面中人物正在做什么。
