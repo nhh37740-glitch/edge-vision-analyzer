@@ -122,4 +122,15 @@ TEST(Api, SwitchRejectsInvalidRequestsAndUpdatesConfigOnSuccess) {
   EXPECT_FALSE(after["input"]["loop"].get<bool>());
 }
 
+TEST(Api, ImmediateStopAfterStartDoesNotHang) {
+  auto source_control = std::make_shared<FakeSourceControl>();
+  auto metrics = std::make_shared<Metrics>();
+  ApiServer api(api_config(), source_control, metrics, "127.0.0.1");
+
+  std::string error;
+  ASSERT_TRUE(api.start(error)) << error;
+  EXPECT_GT(api.port(), 0);
+  api.stop();
+}
+
 }  // namespace

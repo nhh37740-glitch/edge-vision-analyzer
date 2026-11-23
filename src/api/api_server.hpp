@@ -41,6 +41,7 @@ class ApiServer {
   std::thread thread_;
   std::atomic<int> bound_port_{0};
   mutable std::mutex config_mutex_;
+  std::mutex switch_mutex_;
   Config config_;
   std::string bind_address_;
   std::shared_ptr<SourceControl> source_control_;
