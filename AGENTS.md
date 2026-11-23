@@ -61,3 +61,21 @@
 - 报告 CI 时注明实际执行及跳过的任务。静态检查和空骨架门禁通过不能用来报告已构建、测试通过或完成发版。
 - 同一主题仅维护一份正式依据：架构见 architecture，接口见 api/openapi，阶段交付与验收见 roadmap；变更同步关联文件。
 - 默认简体中文、结论先行。状态区分已修改、已验证、已构建、已部署、线上已验收；记录日期使用北京时间。
+
+## 7. CMake 模块化与依赖隔离（PATCH-005）
+
+模块有实际源文件后，按 `CMakeLists.txt` 和 [架构构建契约](docs/architecture.md) 为各自目录建立 `add_library(... STATIC ...)` 目标。
+
+| 静态库 | 允许的直接依赖 |
+| --- | --- |
+| `edge_core` | C++ 标准库、`Threads::Threads` |
+| `edge_common` | `nlohmann_json::nlohmann_json` |
+| `edge_capture` | `edge_core`、`edge_common`、FFmpeg |
+| `edge_detector` | `edge_core`、`edge_common`、NCNN |
+| `edge_transport` | `edge_core`、`edge_common`、cpp-httplib、stb |
+| `edge_streamer` | `edge_core`、`edge_common`、stb |
+| `edge_api` | `edge_core`、`edge_common`、cpp-httplib |
+
+- `src/main.cpp` 只装配所需模块，最终构建单个 `edge-vision-analyzer`。业务 `.cpp` 留在各自静态库目标。通过目标声明链接和 include 路径。FFmpeg 等底层运行库保持动态链接。
+- 每个单测目标只直接链接 `edge_core`、`edge_common`、被测模块自身静态库和 `GTest::gtest_main`。被测模块可带入其自身依赖。例如 `test_detector` 不链接 FFmpeg、`edge_capture` 或主程序。
+- 交叉编译设置 `BUILD_TESTING=OFF`。真实主程序目标提供 `install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)` 供 Release 打包。当前根 CMake 文件只定义空工程和构建骨架。ARM64 工具链由后续 Issue #1 补齐。

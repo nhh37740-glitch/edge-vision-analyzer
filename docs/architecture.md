@@ -1,6 +1,6 @@
 # Edge Vision Analyzer 架构
 
-状态：有效设计契约，全部业务能力待实现。维护：项目接力 Agent；日期：2026-11-23（北京时间）。PATCH-003 覆盖此前存储与历史事件查询设计。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
+状态：有效设计契约，全部业务能力待实现。维护：项目接力 Agent；日期：2026-11-23（北京时间）。PATCH-003 覆盖此前存储与历史事件查询设计，PATCH-005 补充模块构建与链接边界。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
 
 ## 1. 物理拓扑与三个服务入口
 
@@ -121,4 +121,24 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 
 实时 MJPEG 仍只在观看或快照请求时编码，无请求时不编码；可选 RTSP 使用 `-preset ultrafast -tune zerolatency -b:v 500k`。Nous 的事件 JPEG 编码与实时 OSD 输出编码用途不同，不把两者混用。后续验收需包含关闭上游／超时降级、队列丢旧与释放、优雅退出及 RSS **<150MB**；指标以实测记录为准。
 
-PATCH-003 本轮允许以文档／骨架 PR 合并到受保护 `main`，不关闭保护、不直接推送 main；合并后同步 `feature/capture` 到最新 main 即停止，等待联想宿主机新的开发授权。当前不编写 C++／Python 服务实现、不创建或运行单元测试、不编译、不添加 CI、不部署服务。接口、配置和数据结构的静态检查不等于运行验收。
+初始化与 PATCH-003 的存储文档／骨架已交付，业务实现仍待联想宿主机接力。PATCH-005 仅补充已授权的工程骨架与交付契约；当前不编写 C++／Python 服务实现、不创建或运行单元测试、不在本机编译、不部署服务。变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；本次文档与工程骨架合并、分支同步后停止，后续业务开发须取得新的指令。静态检查与工作流定义均不等于业务构建或运行验收。
+
+## 8. 模块构建与链接边界（PATCH-005）
+
+根 [CMakeLists.txt](../CMakeLists.txt) 当前仅为注释骨架，以 `project(... LANGUAGES NONE)` 避免声明尚无源文件的构建目标。源模块获准落地后启用 CXX，按下表分别创建 `STATIC` 库，不把所有 `.cpp` 填进主程序。
+
+| 项目静态库 | 直接依赖 |
+| --- | --- |
+| `edge_core` | 标准库、`Threads::Threads` |
+| `edge_common` | `nlohmann_json::nlohmann_json` |
+| `edge_capture` | `edge_core`、`edge_common`、FFmpeg |
+| `edge_detector` | `edge_core`、`edge_common`、NCNN |
+| `edge_transport` | `edge_core`、`edge_common`、cpp-httplib、stb |
+| `edge_streamer` | `edge_core`、`edge_common`、stb |
+| `edge_api` | `edge_core`、`edge_common`、cpp-httplib |
+
+未来 `src/main.cpp` 仅作入口，链接上述七个项目静态库形成唯一边缘可执行文件 `edge-vision-analyzer`；FFmpeg 等非头文件第三方底层运行库保持动态链接，不将“项目模块 STATIC”理解为全静态程序。依赖以目标为范围声明，实际 imported target 名称随所选版本登记，不把 FFmpeg 全局注入 core/common 或所有模块。`cloud-storage` 仍为独立 PC 进程，不参与此 C++ 链接图。
+
+源模块落地后引入 `include(CTest)`，每个单测可执行文件仅直接链接 `edge_core`、`edge_common`、被测模块和 `GTest::gtest_main`；被测模块按上表带入自身必要依赖。`test_detector` 不链接 capture、主程序或 FFmpeg。交叉编译设置 `BUILD_TESTING=OFF`；工具链内容仍由后续 Issue #1 完成，本轮不填写。
+
+真实程序目标存在后添加 `install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)`，为 release 打包提供安装目录；当前不创建空目标或声称已经产出二进制。

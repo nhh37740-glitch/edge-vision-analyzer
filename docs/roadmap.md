@@ -2,13 +2,13 @@
 
 状态：有效设计；全部业务能力待实现。更新日期：2026-11-23（北京时间）。
 
-本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001、PATCH-002、PATCH-003；存储和历史查询以 PATCH-003 的无状态边缘／PC 存储分离设计为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.json](../config/config.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
+本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-005。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.json](../config/config.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
 
 ## 1. 当前执行边界与后续启动条件
 
 当前只维护初始化骨架与文档，补充 `cloud-storage/README.md`、`requirements.txt`、`schema.sql` 和空服务占位；运行时 `cloud-storage/storage/` 整体忽略。本文的业务交付件、C++ 代码块和验收场景都是后续设计，不表示实现已经创建或测试已经运行。
 
-本轮不创建 C++ 或 Python 服务实现、不创建或运行单元测试、不运行 CMake / 交叉编译 / CTest、不添加 CI、不部署服务。`CMakeLists.txt` 与 `cmake/aarch64-toolchain.cmake` 属于 `v0.1-oculus` 后续交付，本轮 `cmake/` 仅保留 `.gitkeep`；FastAPI `server.py` 实现在 `v0.3-nous`。PATCH-003 允许将本轮文档／骨架通过 PR 合并到受保护 `main`，不关闭保护或直接推送 main；合并后同步 `feature/capture` 到最新 main 即停止。后续实现仍须新的开发指令，分支、Issue 和本文件不自动构成授权。
+当前仓库包含协作模板、GitHub Actions 和根 [CMakeLists.txt](../CMakeLists.txt) 的注释骨架。`cmake/aarch64-toolchain.cmake` 和实际构建目标在 `v0.1-oculus` 实现，FastAPI `server.py` 在 `v0.3-nous` 实现。接手 Agent 在收到开发指令后实施业务，所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
 每次获准实现前，先列明“业务模块 → 修改／新增的专属一级模块 → 用户可完成的功能”，明确文件范围、数据归属和验收方式。边缘实时视觉独占 `src/` 技术范围，PC 事件存储独占 `cloud-storage/` 及历史数据；两者经 HTTP 契约协作，不互相借用一级模块。具体责任说明以 [architecture](architecture.md) 为准。
 
@@ -86,7 +86,7 @@ edge-vision-analyzer/
 ├── CLAUDE.md
 ├── README.md
 ├── .gitignore
-├── CMakeLists.txt                      # v0.1-oculus 后续实现
+├── CMakeLists.txt                      # 已有骨架，v0.1-oculus 补可构建目标
 ├── cmake/aarch64-toolchain.cmake       # v0.1-oculus 后续实现
 ├── config/config.json
 ├── docs/
@@ -221,13 +221,13 @@ private:
 | `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 待实现 |
 | `v1.0-vox` | Vox，神谕之声／宣示 | OSD、MJPEG／RTSP、systemd 守护交付 | 待实现 |
 
-Milestone 的建立不等于已发版；仅在实际完成、验收后按 [AGENTS.md](../AGENTS.md) 执行对应 Tag 的发布流程。
+验收完成后按 [AGENTS.md](../AGENTS.md) 发布。任一 `v*` Tag 都要求 x86_64 构建及 CTest、云存储离线 pytest、aarch64 构建及打包。打 Tag 前确认云存储已有可运行测试、`deploy/edge-vision.service` 已交付，且 CMake 可安装 `bin/edge-vision-analyzer`。这是首个 Release 同样适用的前置条件。
 
 ### 4.1 `v0.1-oculus` — 视频采集、录片与基础控制面
 
 **全部交付件：**
 
-- `CMakeLists.txt`、`cmake/aarch64-toolchain.cmake`：支持 x86_64 本机测试构建和 aarch64 交叉编译；均在后续开发创建。
+- 补齐 [CMakeLists.txt](../CMakeLists.txt) 的实际静态库、运行与测试目标，并创建 `cmake/aarch64-toolchain.cmake`，支持 x86_64 本机测试和 aarch64 交叉编译。依赖矩阵见 [架构构建契约](architecture.md)。
 - `src/core/frame_meta.hpp`、`bounded_queue.hpp`、`base_node.hpp`、`base_node.cpp`：统一元数据、丢旧帧队列和节点基类。
 - `src/common/config.hpp` / `.cpp`、`metrics.hpp` / `.cpp`：配置加载、原子热更新基础与 FPS／耗时／`/proc/self/statm` RSS 统计。
 - `src/capture/capture_node.hpp` / `.cpp`、`frame_dumper.hpp` / `.cpp`：FFmpeg 拉流、本地循环、remux 录片与按间隔保存 JPEG。
