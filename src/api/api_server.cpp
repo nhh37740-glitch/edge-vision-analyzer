@@ -113,6 +113,9 @@ void ApiServer::configure_routes() {
                     return;
                   }
 
+                  // Serialize switches so the committed capture source and
+                  // config_ cannot be interleaved by two concurrent requests.
+                  std::lock_guard<std::mutex> switch_lock(switch_mutex_);
                   std::string error;
                   if (!source_control_->switch_source(source, loop, error)) {
                     std::fprintf(stderr, "ApiServer: source switch failed: %s\n", error.c_str());
@@ -146,6 +149,9 @@ bool ApiServer::start(std::string& error) {
   bound_port_.store(bound);
   started_ = std::chrono::steady_clock::now();
   thread_ = std::thread([this] { server_->listen_after_bind(); });
+  // stop() is a no-op until the listen thread marks the server running; wait
+  // so an immediate start()/stop() pair cannot leave join() blocked forever.
+  server_->wait_until_ready();
   return true;
 }
 
