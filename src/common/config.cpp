@@ -1,6 +1,7 @@
 #include "common/config.hpp"
 
 #include <fstream>
+#include <set>
 #include <stdexcept>
 
 namespace edge {
@@ -64,6 +65,18 @@ void validate(const Config& config) {
   if (config.llm.jpeg_quality < 1 || config.llm.jpeg_quality > 100) {
     throw std::runtime_error("llm.jpeg_quality must be between 1 and 100");
   }
+  static const std::set<std::string> kQuantizationTiers = {"auto", "q8", "q5", "q4", "none"};
+  if (kQuantizationTiers.count(config.llm.quantization) == 0) {
+    throw std::runtime_error("llm.quantization must be one of auto, q8, q5, q4, none");
+  }
+  for (const auto& candidate : config.llm.model_candidates) {
+    if (kQuantizationTiers.count(candidate.first) == 0) {
+      throw std::runtime_error("llm.model_candidates contains an unknown quantization tier");
+    }
+    if (candidate.second.empty()) {
+      throw std::runtime_error("llm.model_candidates aliases must not be empty");
+    }
+  }
   if (config.llm.enabled && config.llm.endpoint.empty()) {
     throw std::runtime_error("llm.endpoint must not be empty when llm is enabled");
   }
@@ -111,6 +124,13 @@ void from_json(const nlohmann::json& json, LlmConfig& config) {
   config.enabled = json.at("enabled").get<bool>();
   config.endpoint = json.at("endpoint").get<std::string>();
   config.model = json.at("model").get<std::string>();
+  if (json.contains("quantization")) {
+    config.quantization = json.at("quantization").get<std::string>();
+  }
+  if (json.contains("model_candidates")) {
+    config.model_candidates =
+        json.at("model_candidates").get<std::map<std::string, std::string>>();
+  }
   config.prompt = json.at("prompt").get<std::string>();
   config.cooldown_sec = json.at("cooldown_sec").get<int>();
   config.connect_timeout_sec = json.at("connect_timeout_sec").get<int>();
@@ -166,6 +186,8 @@ void to_json(nlohmann::json& json, const LlmConfig& config) {
   json = nlohmann::json{{"enabled", config.enabled},
                         {"endpoint", config.endpoint},
                         {"model", config.model},
+                        {"quantization", config.quantization},
+                        {"model_candidates", config.model_candidates},
                         {"prompt", config.prompt},
                         {"cooldown_sec", config.cooldown_sec},
                         {"connect_timeout_sec", config.connect_timeout_sec},

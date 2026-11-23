@@ -105,7 +105,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 | `input` | `source`, `loop`, `width`, `height`, `target_fps`, `dump_interval_sec` |
 | `detector` | `motion_mad_threshold`, `model_param`, `model_bin`, `input_size`, `conf_threshold`, `num_threads`, `target_labels` |
 | `event` | `end_grace_sec` |
-| `llm` | `enabled`, `endpoint`, `model`, `prompt`, `cooldown_sec`, `connect_timeout_sec`, `read_timeout_sec`, `jpeg_quality` |
+| `llm` | `enabled`, `endpoint`, `model`, `quantization`, `model_candidates`, `prompt`, `cooldown_sec`, `connect_timeout_sec`, `read_timeout_sec`, `jpeg_quality` |
 | `storage` | `enabled`, `endpoint`, `timeout_sec` |
 | `streamer` | `mode`, `http_port`, `rtsp_url` |
 
@@ -315,5 +315,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 ```
 
 成功取 `choices[0].message.content`，随后与事件元数据合并投递 PC 云存储，不回填边缘历史表。JPEG 使用 `stbi_write_jpg_to_func` 在内存中编码，默认质量 70；应在 OSD 展示绘制前取得干净画面。同一事件由活动状态聚合与冷却机制触发，规则见架构和路线图。
+
+请求中的 `model` 由 `llm.quantization` 与 `llm.model_candidates` 选型得到：`auto` 依次尝试 q8、q5、q4，显式档位不可用或全部不可用时回退到基础 `llm.model`，此时 `quantization` 记为 `none`。启动时尝试 `GET /v1/models` 获取上游已加载的模型别名，失败按未知列表处理；显存已知时要求不低于档位门槛（q8 8192MB、q5 6144MB、q4 4096MB，0 表示未知不限制），延迟已知时还要求不超过 `read_timeout_sec`。
 
 本节 LLM 两个接口不纳入本仓库 OpenAPI paths。后续需与实际 llama-server 版本联调核对多模态支持，不能据此宣称已部署或已验收。

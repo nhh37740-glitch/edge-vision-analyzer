@@ -95,6 +95,7 @@ add_library(edge_transport STATIC
   src/transport/jpeg_base64.cpp
   src/transport/genai_worker.cpp
   src/transport/event_tracker_node.cpp
+  src/transport/llm_selection.cpp
 )
 target_include_directories(edge_transport PRIVATE ${STB_INCLUDE_DIR})
 if(HTTPLIB_FOUND)
@@ -138,6 +139,12 @@ if(BUILD_TESTING)
     edge_core edge_common edge_detector GTest::gtest_main)
   add_test(NAME test_detector COMMAND test_detector)
   set_tests_properties(test_detector PROPERTIES TIMEOUT 5)
+
+  add_executable(test_llm_selection tests/test_llm_selection.cpp)
+  target_link_libraries(test_llm_selection PRIVATE
+    edge_core edge_common edge_transport GTest::gtest_main)
+  add_test(NAME test_llm_selection COMMAND test_llm_selection)
+  set_tests_properties(test_llm_selection PROPERTIES TIMEOUT 5)
 
   add_executable(test_api tests/test_api.cpp)
   target_link_libraries(test_api PRIVATE

@@ -255,6 +255,68 @@ TEST(Transport, LlmOnlySendsOpenAiVisionRequestAndParsesSummary) {
   worker.stop();
 }
 
+TEST(Transport, LlmRequestUsesSelectedModelAndFallsBackToBase) {
+  MockServer mock;
+  ASSERT_GT(mock.port(), 0);
+  std::mutex mutex;
+  std::vector<std::string> requested_models;
+  std::atomic<int> requests{0};
+
+  mock.server().Get("/v1/models", [](const httplib::Request&, httplib::Response& response) {
+    response.set_content(R"({"data":[{"id":"vlm-local"},{"id":"vlm-q5"}]})",
+                         "application/json");
+  });
+  mock.server().Post("/v1/chat/completions",
+                     [&](const httplib::Request& request, httplib::Response& response) {
+                       {
+                         std::lock_guard<std::mutex> lock(mutex);
+                         requested_models.push_back(
+                             nlohmann::json::parse(request.body).at("model").get<std::string>());
+                       }
+                       requests.fetch_add(1);
+                       response.set_content(
+                           R"({"choices":[{"message":{"content":"ok"}}]})",
+                           "application/json");
+                     });
+  mock.start();
+
+  LlmConfig llm = llm_config(mock.port(), true);
+  llm.quantization = "auto";
+  llm.model_candidates = {{"q8", "vlm-q8"}, {"q5", "vlm-q5"}};
+
+  // The startup probe sees only vlm-q5, so auto skips q8 and sends q5.
+  {
+    GenAiWorker worker(llm, storage_config(mock.port(), false));
+    worker.start();
+    EXPECT_EQ(worker.selected_model(), "vlm-q5");
+    EXPECT_EQ(worker.selected_quantization(), "q5");
+    ASSERT_TRUE(worker.submit(make_task(make_frame(20, 4), "evt_selected")));
+    ASSERT_TRUE(wait_until([&] {
+      return worker.stats().processed == 1 && requests.load() == 1;
+    }));
+    worker.stop();
+  }
+
+  // An explicit q8 request whose alias is absent falls back to the base model.
+  llm.quantization = "q8";
+  edge::LlmResources resources;
+  resources.available_models = {"vlm-local"};
+  GenAiWorker fallback(llm, storage_config(mock.port(), false), resources);
+  EXPECT_EQ(fallback.selected_model(), "vlm-local");
+  EXPECT_EQ(fallback.selected_quantization(), "none");
+  fallback.start();
+  ASSERT_TRUE(fallback.submit(make_task(make_frame(21, 5), "evt_fallback")));
+  ASSERT_TRUE(wait_until([&] {
+    return fallback.stats().processed == 1 && requests.load() == 2;
+  }));
+  fallback.stop();
+
+  std::lock_guard<std::mutex> lock(mutex);
+  ASSERT_EQ(requested_models.size(), 2u);
+  EXPECT_EQ(requested_models[0], "vlm-q5");
+  EXPECT_EQ(requested_models[1], "vlm-local");
+}
+
 TEST(Transport, LlmFailureSendsEmptySummaryToStorageAfterLlm) {
   MockServer mock;
   ASSERT_GT(mock.port(), 0);
