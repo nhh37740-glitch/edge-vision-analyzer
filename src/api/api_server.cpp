@@ -49,6 +49,37 @@ std::string health_endpoint(const std::string& endpoint) {
   return (path == std::string::npos ? endpoint : endpoint.substr(0, path)) + "/health";
 }
 
+struct SplitEndpoint {
+  std::string base;
+  std::string path;
+};
+
+SplitEndpoint split_endpoint(const std::string& endpoint) {
+  const std::size_t scheme = endpoint.find("://");
+  const std::size_t host_start = scheme == std::string::npos ? 0 : scheme + 3;
+  const std::size_t path_start = endpoint.find('/', host_start);
+  if (path_start == std::string::npos) {
+    return {endpoint, "/"};
+  }
+  return {endpoint.substr(0, path_start), endpoint.substr(path_start)};
+}
+
+// A failed probe only marks that upstream unreachable. It must never wait on
+// real inference or storage writes, so the request is a plain GET /health
+// capped well below the edge health endpoint's own latency budget.
+constexpr std::chrono::milliseconds kProbeTimeout{500};
+constexpr std::chrono::milliseconds kProbeInterval{2000};
+
+std::string probe_upstream(const std::string& endpoint) {
+  const SplitEndpoint split = split_endpoint(endpoint);
+  httplib::Client client(split.base);
+  client.set_connection_timeout(kProbeTimeout);
+  client.set_read_timeout(kProbeTimeout);
+  client.set_write_timeout(kProbeTimeout);
+  const auto response = client.Get(split.path);
+  return response && response->status == 200 ? "reachable" : "unreachable";
+}
+
 }  // namespace
 
 ApiServer::ApiServer(Config config, std::shared_ptr<SourceControl> source_control,
@@ -85,16 +116,23 @@ void ApiServer::configure_routes() {
     const double uptime =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - started_).count();
     const char* status = state == NodeState::kFailed ? "degraded" : "ok";
+    std::string llm_status;
+    std::string storage_status;
+    {
+      std::lock_guard<std::mutex> lock(probe_mutex_);
+      llm_status = llm_status_;
+      storage_status = storage_status_;
+    }
     set_json(response,
              {{"status", status},
               {"version", version()},
               {"uptime_sec", round_tenth(uptime)},
               {"nodes", nodes},
               {"llm",
-               {{"status", config.llm.enabled ? "unknown" : "disabled"},
+               {{"status", llm_status},
                 {"endpoint", health_endpoint(config.llm.endpoint)}}},
               {"storage",
-               {{"status", config.storage.enabled ? "unknown" : "disabled"},
+               {{"status", storage_status},
                 {"endpoint", health_endpoint(config.storage.endpoint)}}}});
   });
 
@@ -256,6 +294,20 @@ bool ApiServer::start(std::string& error) {
   }
   bound_port_.store(bound);
   started_ = std::chrono::steady_clock::now();
+
+  const Config config = config_snapshot();
+  {
+    std::lock_guard<std::mutex> lock(probe_mutex_);
+    probe_stop_ = false;
+    llm_status_ = config.llm.enabled ? "unknown" : "disabled";
+    storage_status_ = config.storage.enabled ? "unknown" : "disabled";
+  }
+  // Only enabled upstreams need a probe thread; disabled ones stay disabled
+  // without waking the network at all.
+  if (config.llm.enabled || config.storage.enabled) {
+    probe_thread_ = std::thread([this] { run_probe_loop(); });
+  }
+
   thread_ = std::thread([this] { server_->listen_after_bind(); });
   // stop() is a no-op until the listen thread marks the server running; wait
   // so an immediate start()/stop() pair cannot leave join() blocked forever.
@@ -267,10 +319,40 @@ void ApiServer::stop() {
   if (!server_) {
     return;
   }
+  {
+    std::lock_guard<std::mutex> lock(probe_mutex_);
+    probe_stop_ = true;
+  }
+  probe_cv_.notify_all();
+  if (probe_thread_.joinable()) {
+    probe_thread_.join();
+  }
   server_->stop();
   if (thread_.joinable()) {
     thread_.join();
   }
+}
+
+void ApiServer::run_probe_loop() {
+  while (true) {
+    probe_upstreams();
+    std::unique_lock<std::mutex> lock(probe_mutex_);
+    if (probe_cv_.wait_for(lock, kProbeInterval, [this] { return probe_stop_; })) {
+      return;
+    }
+  }
+}
+
+void ApiServer::probe_upstreams() {
+  const Config config = config_snapshot();
+  const std::string llm_endpoint = health_endpoint(config.llm.endpoint);
+  const std::string storage_endpoint = health_endpoint(config.storage.endpoint);
+  std::string llm = config.llm.enabled ? probe_upstream(llm_endpoint) : "disabled";
+  std::string storage =
+      config.storage.enabled ? probe_upstream(storage_endpoint) : "disabled";
+  std::lock_guard<std::mutex> lock(probe_mutex_);
+  llm_status_ = std::move(llm);
+  storage_status_ = std::move(storage);
 }
 
 }  // namespace edge

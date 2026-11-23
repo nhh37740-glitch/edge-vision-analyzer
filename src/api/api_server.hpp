@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -54,10 +55,18 @@ class ApiServer {
  private:
   void configure_routes();
   Config config_snapshot() const;
+  void run_probe_loop();
+  void probe_upstreams();
 
   std::unique_ptr<httplib::Server> server_;
   std::thread thread_;
+  std::thread probe_thread_;
   std::atomic<int> bound_port_{0};
+  std::mutex probe_mutex_;
+  std::condition_variable probe_cv_;
+  bool probe_stop_ = false;
+  std::string llm_status_ = "disabled";
+  std::string storage_status_ = "disabled";
   mutable std::mutex config_mutex_;
   std::mutex switch_mutex_;
   Config config_;
