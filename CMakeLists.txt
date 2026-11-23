@@ -35,6 +35,11 @@ add_library(edge_common STATIC
 target_include_directories(edge_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(edge_common PUBLIC nlohmann_json::nlohmann_json)
 
+add_library(edge_detector STATIC
+  src/detector/motion_node.cpp
+)
+target_link_libraries(edge_detector PUBLIC edge_core edge_common)
+
 add_library(edge_capture STATIC
   src/capture/capture_node.cpp
   src/capture/frame_dumper.cpp
@@ -63,7 +68,6 @@ target_link_libraries(edge-vision-analyzer PRIVATE
 install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)
 
 # Remaining libraries keep their own sources and direct dependencies:
-#   edge_detector  -> edge_core, edge_common, NCNN
 #   edge_transport -> edge_core, edge_common, cpp-httplib, stb
 #   edge_streamer  -> edge_core, edge_common, stb
 # FFmpeg and other non-header-only third-party runtime libraries stay dynamic.
@@ -85,6 +89,12 @@ if(BUILD_TESTING)
     edge_core edge_common edge_capture GTest::gtest_main)
   add_test(NAME test_capture COMMAND test_capture)
   set_tests_properties(test_capture PROPERTIES TIMEOUT 5)
+
+  add_executable(test_detector tests/test_detector.cpp)
+  target_link_libraries(test_detector PRIVATE
+    edge_core edge_common edge_detector GTest::gtest_main)
+  add_test(NAME test_detector COMMAND test_detector)
+  set_tests_properties(test_detector PROPERTIES TIMEOUT 5)
 
   add_executable(test_api tests/test_api.cpp)
   target_link_libraries(test_api PRIVATE
