@@ -67,7 +67,7 @@ cmake -S . -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build build-arm64 --parallel 2
 ```
 
-CI 基线（ubuntu-24.04）：CMake 3.31.6、Ninja 1.13.2、GCC 与 `aarch64-linux-gnu-g++` 13.3.0、GoogleTest 1.14.0；FFmpeg 库版本为 libavformat 60.16.100、libavcodec 60.31.102、libavutil 58.29.100、libswscale 7.5.100。测试不下载模型、不等待真实设备或推理。
+常规 PR 的 CI 基线（ubuntu-24.04）：CMake 3.31.6、Ninja 1.13.2、GCC 13.3.0、GoogleTest 1.14.0；FFmpeg 库版本为 libavformat 60.16.100、libavcodec 60.31.102、libavutil 58.29.100、libswscale 7.5.100。aarch64 交叉编译只在 `v*` Tag 的 Release 工作流执行，避免每个 PR 重复安装目标架构依赖。测试不下载模型、不等待真实设备或推理。
 
 ## 仓库协作
 
