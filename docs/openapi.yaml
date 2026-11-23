@@ -2,17 +2,17 @@ openapi: 3.0.3
 info:
   title: Edge Vision Analyzer 边缘与云存储 API
   version: 0.1.0
-  description: PATCH-003/007/008/009 两服务设计契约。v0.1-oculus 的 health、stats、config 读取与 source-switch 已实现（本机回环与离线验证），仅 PATCH config 待实现；LLM/Storage 上游探活已实现，边缘 degraded 仍只在 CaptureNode 失败时出现。服务仅在同一有线局域网通信；边缘:8081仅实时控制与流媒体，联想PC cloud-storage:8090保存历史事件、图片和接收日志，llama-server:8080仅提供本地推理。不接公有云服务。每个路径单独绑定servers，外部llama-server不在本OpenAPI
+  description: PATCH-003/007/008/009 两服务设计契约。v0.1-oculus 的 health、stats、config 读取与 source-switch，v1.0-vox 的 snapshot 与 stream，以及 v0.3-nous 的云存储 health/events/images/logs 端点均已实现；仅 PATCH config 待实现。LLM/Storage 上游探活已实现，边缘 degraded 仍只在 CaptureNode 失败时出现。服务仅在同一有线局域网通信；边缘:8081仅实时控制与流媒体，联想PC cloud-storage:8090保存历史事件、图片和接收日志，llama-server:8080仅提供本地推理。不接公有云服务。每个路径单独绑定servers，外部llama-server不在本OpenAPI
     paths中。
 tags:
 - name: v0.1-oculus
   description: 采集与基础控制面，已实现（本机回环与离线验证）；LLM/Storage 上游探活已实现，degraded 仍只在 CaptureNode 失败时出现。
 - name: v0.2-discern
-  description: 检测与配置热更新，待实现。
+  description: 检测已实现并接入运行入口；PATCH config 热更新待实现。
 - name: v0.3-nous
-  description: 事件聚合与异步语义分析，待实现。
+  description: 事件聚合与异步语义分析已实现并接入运行入口；云存储服务已实现，真机验收待执行。
 - name: v1.0-vox
-  description: OSD、快照和推流，待实现。
+  description: OSD、快照与推流已实现并接入运行入口；真机与 MediaMTX 验收待执行。
 paths:
   /api/v1/health:
     get:
@@ -166,7 +166,7 @@ paths:
       summary: 读取最新带 OSD 标注的 JPEG
       tags:
       - v1.0-vox
-      x-implementation-status: planned
+      x-implementation-status: implemented
       responses:
         '200':
           description: JPEG 二进制。
@@ -193,7 +193,7 @@ paths:
       summary: 订阅实时标注 MJPEG
       tags:
       - v1.0-vox
-      x-implementation-status: planned
+      x-implementation-status: implemented
       responses:
         '200':
           description: '持续响应；Content-Type: multipart/x-mixed-replace; boundary=frame。每个部分包含 Content-Type:
@@ -229,7 +229,7 @@ paths:
       summary: 云存储数据库连接健康探针
       tags:
       - v0.3-nous
-      x-implementation-status: planned
+      x-implementation-status: implemented
       responses:
         '200':
           description: 成功。
@@ -255,7 +255,7 @@ paths:
       summary: 保存干净抓拍与结构化事件
       tags:
       - v0.3-nous
-      x-implementation-status: planned
+      x-implementation-status: implemented
       responses:
         '201':
           description: 图片与结构化元数据均写入成功后返回201 Created。
@@ -281,13 +281,13 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateEventRequest'
-      description: 先校验timestamp_ms为必填非负int64整数，0合法；缺失、负值、错误类型/非整数/布尔或越界返回400。合法值早于2025-01-01T00:00:00Z（1735689600000）或晚于9999-12-31T23:59:59.999Z时，使用PC接收本请求时只取一次的当前Unix毫秒；范围内（含两端）保留入站值。选定的同一个有效timestamp_ms同时用于SQLite、历史列表/排序及图片UTC日期，event_id等其他字段不变。将image_base64解码为JPEG，写入storage/images/YYYY-MM-DD/<event_id>.jpg；SQLite保存相对路径和元数据（schema.sql）。不接收调用方路径；event_id限定安全字符且仅服务端生成文件名。重复event_id返回400/EVENT_EXISTS，不覆盖原留存；无效Base64/JPEG/字段返回400，文件/数据库写入失败返回500。以上均为待实现规则。
+      description: 先校验timestamp_ms为必填非负int64整数，0合法；缺失、负值、错误类型/非整数/布尔或越界返回400。合法值早于2025-01-01T00:00:00Z（1735689600000）或晚于9999-12-31T23:59:59.999Z时，使用PC接收本请求时只取一次的当前Unix毫秒；范围内（含两端）保留入站值。选定的同一个有效timestamp_ms同时用于SQLite、历史列表/排序及图片UTC日期，event_id等其他字段不变。将image_base64解码为JPEG，写入storage/images/YYYY-MM-DD/<event_id>.jpg；SQLite保存相对路径和元数据（schema.sql）。不接收调用方路径；event_id限定安全字符且仅服务端生成文件名。重复event_id返回400/EVENT_EXISTS，不覆盖原留存；无效Base64/JPEG/字段返回400，文件/数据库写入失败返回500。
     get:
       operationId: listStoredEvents
       summary: 分页查询历史结构化事件
       tags:
       - v0.3-nous
-      x-implementation-status: planned
+      x-implementation-status: implemented
       responses:
         '200':
           description: 成功。
@@ -331,7 +331,7 @@ paths:
       summary: 读取历史事件干净JPEG抓拍
       tags:
       - v0.3-nous
-      x-implementation-status: planned
+      x-implementation-status: implemented
       responses:
         '200':
           description: 留存的未经OSD绘制的原始干净JPEG。
@@ -375,7 +375,7 @@ paths:
       summary: 接收Fluent Bit结构化日志批次
       tags:
       - v0.3-nous
-      x-implementation-status: planned
+      x-implementation-status: implemented
       description: 仅LAN内由PC接收，不代理到边缘。实现约定：按PC接收时的UTC日期，将整个批次的每条原始对象紧凑序列化为UTF-8单行JSON，按数组顺序逐条追加至cloud-storage/storage/logs/YYYY-MM-DD.log；字符串内换行转义。保留原始字段结构，不重命名、删减或补造字段，不依据源时间分文件，不写SQLite。全部追加成功后返回204无响应体；非法JSON/非对象数组返回400，写入失败返回500。追加语义允许重试批次产生重复行。
       requestBody:
         required: true
@@ -403,7 +403,7 @@ paths:
       summary: 按PC接收日期查询最近日志行
       tags:
       - v0.3-nous
-      x-implementation-status: planned
+      x-implementation-status: implemented
       description: 仅查询PC本地cloud-storage/storage/logs/YYYY-MM-DD.log，不向边缘请求或代理日志。date以PC接收UTC日期为准；校验真实日历日期并限定文件位于logs根目录。返回最近tail行，保持这些行原有写入顺序；不足tail行返回全部，空文件返回200空内容，缺文件返回404。非法日期/条数返回400，读取失败返回500；错误沿用统一Error。
       parameters:
       - name: date

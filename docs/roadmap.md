@@ -1,6 +1,6 @@
 # Edge Vision Analyzer — 里程碑、内部契约与验收
 
-状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，v0.2 的帧差漏斗 MotionNode、NcnnDetectorNode 与检测量化选型模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现，三者已由 `src/main.cpp` 接入端到端运行入口；PC 存储服务已实现，部署脚本与模板已就绪，离线单测已覆盖上述模块，真机验收待补。更新日期：2026-11-24（北京时间）。
+状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，v0.2 的帧差漏斗 MotionNode、NcnnDetectorNode 与检测量化选型模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递、`EventTrackerNode` 事件聚合与 LLM 量化选型已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现，上述模块已由 `src/main.cpp` 接入端到端运行入口；PC 云存储服务已实现，health 上游探活已实现，部署脚本与模板已就绪，PATCH config 热更新尚未实现；离线单测已覆盖上述模块，真机验收待执行。更新日期：2026-11-24（北京时间）。
 
 本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-009。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.example.json](../config/config.example.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
 
@@ -260,10 +260,10 @@ class BaseNode {
 
 | 里程碑／规划发版 Tag | 感官意象 | 功能目标 | 当前状态 |
 | --- | --- | --- | --- |
-| `v0.1-oculus` | Oculus，神目／视觉 | 接入手机有线流和本地循环视频，完成采集与基础控制面 | 已实现（本机回环与离线验证）；真机阶段 A 与发版待补 |
-| `v0.2-discern` | Discern，洞察／明辨 | 帧差漏斗与 NCNN 端侧目标检测 | 已实现并接入运行入口，含量化选型；真机验收待补 |
-| `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 事件聚合与异步投递已实现并接入运行入口，LLM 量化选型已实现，PC 存储服务已实现；真机验收待补 |
-| `v1.0-vox` | Vox，神谕之声／宣示 | OSD、MJPEG／RTSP、systemd 守护交付 | OSD 与 MJPEG／RTSP 双模装配已实现并接入运行入口；部署脚本／模板与真机、MediaMTX 验收待补 |
+| `v0.1-oculus` | Oculus，神目／视觉 | 接入手机有线流和本地循环视频，完成采集与基础控制面 | 已实现并接入运行入口（本机回环与离线验证）；真机阶段 A 验收待执行 |
+| `v0.2-discern` | Discern，洞察／明辨 | 帧差漏斗与 NCNN 端侧目标检测 | 检测与量化选型已实现并接入运行入口；PATCH config 热更新待实现，真机验收待执行 |
+| `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 事件聚合与异步投递已实现并接入运行入口，LLM 量化选型与 PC 云存储服务已实现；真机验收待执行 |
+| `v1.0-vox` | Vox，神谕之声／宣示 | OSD、MJPEG／RTSP、systemd 守护交付 | OSD、快照与 MJPEG／RTSP 双模输出已实现并接入运行入口；部署脚本／模板已就绪，真机与 MediaMTX 验收待执行 |
 
 验收完成后按 [AGENTS.md](../AGENTS.md) 发布。任一 `v*` Tag 都要求 x86_64 构建及 CTest、云存储离线 pytest、aarch64 构建及打包。打 Tag 前确认云存储已有可运行测试、`deploy/edge-vision.service` 模板已在目标机验收，且 CMake 可安装 `bin/edge-vision-analyzer`。这是首个 Release 同样适用的前置条件。
 
@@ -380,7 +380,7 @@ FastAPI `POST /api/v1/events` 解码干净 JPEG，把图片写入 `cloud-storage
 4. LLM 连接／读取超时或失败时，仍以空描述向已开启的 Storage 投递，不阻塞视频流水线。
 5. Storage 超时／失败不崩溃、不重试、不写本地缓存，不造成任务无界积压。
 
-**PC 服务后续离线验收，3～5 个用例：**
+**PC 服务离线验收，已实现 5 个用例（`cloud-storage/test_server.py`）：**
 
 1. 临时 SQLite 依据 schema 初始化后健康检查成功。
 2. 投递极小干净 JPEG 后得到 201，图片相对路径和元数据对应；读取图片能还原输入内容。
