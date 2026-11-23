@@ -94,6 +94,7 @@ target_link_libraries(edge_streamer PUBLIC edge_core edge_common)
 add_library(edge_transport STATIC
   src/transport/jpeg_base64.cpp
   src/transport/genai_worker.cpp
+  src/transport/event_tracker_node.cpp
 )
 target_include_directories(edge_transport PRIVATE ${STB_INCLUDE_DIR})
 if(HTTPLIB_FOUND)
