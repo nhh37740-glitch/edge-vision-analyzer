@@ -1,6 +1,6 @@
 # Edge Vision Analyzer — 里程碑、内部契约与验收
 
-状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，帧差漏斗 MotionNode 已实现（NCNN 检测待实现），离线单测已覆盖上述模块，真机验收待补。更新日期：2026-11-23（北京时间）。
+状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，v0.2 的帧差漏斗 MotionNode 已实现（NCNN 检测待实现），离线单测已覆盖上述模块，真机验收待补。更新日期：2026-11-23（北京时间）。
 
 本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-009。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.example.json](../config/config.example.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
 
