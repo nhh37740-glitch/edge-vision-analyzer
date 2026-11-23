@@ -1,6 +1,6 @@
 # Edge Vision Analyzer — 双服务 API 契约
 
-状态：有效设计契约，全部端点待实现。维护责任：项目维护 Agent。更新日期：2026-11-23（北京时间）。依据：PATCH-001 至 PATCH-007；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准。
+状态：有效设计契约，全部端点待实现。维护责任：项目维护 Agent。更新日期：2026-11-23（北京时间）。依据：PATCH-001 至 PATCH-008；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准。
 
 本轮仅初始化文档，不代表 API 已运行或完成验收。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
 
@@ -9,7 +9,7 @@
 | 服务 | 示例地址 | 唯一职责 |
 | --- | --- | --- |
 | 魔百盒边缘端 | `http://192.168.10.11:8081` | 实时控制、状态与带 OSD 的实时画面 |
-| 联想 PC cloud-storage | `http://192.168.10.10:8090` | 留存干净 JPEG、SQLite 结构化事件与历史查询 |
+| 联想 PC cloud-storage | `http://192.168.10.10:8090` | 留存干净 JPEG、SQLite 结构化事件、历史查询与日志收集 |
 | 联想 PC llama-server（外部依赖） | `http://192.168.10.10:8080` | 多模态语义推理，不承担留存与历史查询 |
 
 全部服务只在同一有线局域网内通信，推理固定使用联想 PC `:8080` 的本地 `llama-server`，留存使用同机 `:8090` 的 `cloud-storage`，不接公有云服务。边缘进程计划监听 `0.0.0.0:8081`，云存储进程计划监听 `0.0.0.0:8090`。调用时使用实际设备地址。OpenAPI 的每个路径分别设置 `servers`，避免把不同服务当作可互换的服务器列表。
@@ -26,7 +26,7 @@
 | GET | `/api/v1/snapshot.jpg` | `v1.0-vox` | 实时 OSD JPEG；无首帧返回 503 |
 | GET | `/api/v1/stream` | `v1.0-vox` | 实时 OSD MJPEG |
 
-云存储端共 3 个资源路径、4 个操作，均属于 `v0.3-nous`：
+云存储端共 4 个资源路径、6 个操作，均属于 `v0.3-nous`。两服务合计 10 个资源路径、13 个操作：
 
 | 方法 | 路径 | 契约 |
 | --- | --- | --- |
@@ -34,6 +34,8 @@
 | POST | `/api/v1/events` | 接收干净抓拍与结构化结果，成功返回 201 |
 | GET | `/api/v1/events` | 以 `limit/offset` 分页查询历史事件 |
 | GET | `/api/v1/images/{date}/{filename}` | 返回对应历史事件的干净 JPEG |
+| POST | `/api/v1/logs` | 接收 Fluent Bit JSON 对象数组，逐条追加日志文件 |
+| GET | `/api/v1/logs` | 按接收日期查询最近日志行 |
 
 PC 提供历史 `GET /api/v1/events`。边缘只保留当前活动事件的聚合状态，历史图片与结构化数据由 PC 存储。
 
@@ -232,6 +234,42 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 ### 5.4 读取历史图片
 
 `GET :8090/api/v1/images/{date}/{filename}` 返回 `200 Content-Type: image/jpeg` 和未经 OSD 绘制的干净抓拍。`date` 必须为实际 UTC 日历日期 `YYYY-MM-DD`，`filename` 只能是合法 `<event_id>.jpg`。服务端只在 `cloud-storage/storage/images/` 根目录下解析；拒绝路径分隔符、`..`、编码绕过和越出根目录的最终路径。非法路径返回 400，图片不存在返回 404，均采用统一 Error。
+
+### 5.5 接收结构化日志
+
+`POST :8090/api/v1/logs` 供魔百盒 Fluent Bit HTTP output 使用，发送 `Content-Type: application/json`，`Format json` 每次提交 **JSON 对象数组**：
+
+```json
+[
+  {
+    "date": "2026-11-23T05:33:20.123Z",
+    "MESSAGE": "采集节点已启动",
+    "_SYSTEMD_UNIT": "edge-vision.service"
+  }
+]
+```
+
+这是结构示例，`date`、`MESSAGE`、`_SYSTEMD_UNIT` 等均非接口强制字段；保留每条对象的原始结构和全部 JSON 字段。时间可以是 ISO8601 字符串或实际输出的其他 JSON 值，接收端不重命名、删减或补造字段。仓库 [Fluent Bit 模板](../deploy/fluent-bit.conf) 当前使用 `Format json`，未固定时间字段格式；最终字段以机器上实际模板及 Fluent Bit 输出为准。时间键与格式可由输出插件配置，见 [Fluent Bit HTTP 官方文档](https://docs.fluentbit.io/manual/data-pipeline/outputs/http)。
+
+**实现约定**：在联想 PC 接收请求时确定 UTC 日期，整个批次归档至 `cloud-storage/storage/logs/YYYY-MM-DD.log`；不依据日志对象内的源时间字段划分文件。每条对象序列化为一行紧凑 UTF-8 JSON，保留字段结构，字符串内换行转义，逐条追加并以换行结束。日志不写 SQLite，也不改变事件表。
+
+全部追加完成后返回 **204 No Content**，无响应体。非法 JSON、非数组或数组含非对象元素返回 400 和统一 Error；文件写入失败返回 500，不能回报 204。接口按追加语义处理，重试批次可能产生重复行。
+
+### 5.6 查询日志尾部
+
+`GET :8090/api/v1/logs?date=2026-11-23&tail=100` 仅查询 PC 已接收的本地日志，不请求或代理魔百盒接口。
+
+- `date` 必填，必须是 `YYYY-MM-DD` 的真实 UTC 日历日期；格式正确但日期不存在也返回 400。
+- `tail` 默认 100，范围 1..1000，必须为整数；非法值返回 400。
+- 从对应日期文件读取最近 N 行，并保持这些行原有的写入顺序（较早的在前）；不足 N 行返回全部，空文件返回 200 和空内容。
+
+成功返回 **200 Content-Type: application/x-ndjson**，不是 JSON 数组；每行对应一条原始日志对象。例如：
+
+```jsonl
+{"date":"2026-11-23T05:33:20.123Z","MESSAGE":"采集节点已启动","_SYSTEMD_UNIT":"edge-vision.service"}
+```
+
+文件不存在返回 404 和统一 Error；日期/条数非法返回 400，读取失败返回 500。服务端仅从 `cloud-storage/storage/logs/` 下按已校验日期拼接文件名，不接受调用方路径或返回物理路径。本接口与 POST 均只在交换机局域网内使用，由 PC `:8090` 独立提供，魔百盒 `:8081` 不新增日志 API。
 
 ## 6. 上游 llama-server（外部依赖）与异步投递
 

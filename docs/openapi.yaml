@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Edge Vision Analyzer 边缘与云存储 API
   version: 0.1.0
-  description: PATCH-003/007 两服务设计契约，全部端点待实现。服务仅在同一有线局域网通信；边缘:8081仅实时控制与流媒体，联想PC cloud-storage:8090保存历史事件与图片，llama-server:8080仅提供本地推理。不接公有云服务。每个路径单独绑定servers，外部llama-server不在本OpenAPI
+  description: PATCH-003/007/008 两服务设计契约，全部端点待实现。服务仅在同一有线局域网通信；边缘:8081仅实时控制与流媒体，联想PC cloud-storage:8090保存历史事件、图片和接收日志，llama-server:8080仅提供本地推理。不接公有云服务。每个路径单独绑定servers，外部llama-server不在本OpenAPI
     paths中。
 tags:
 - name: v0.1-oculus
@@ -365,6 +365,82 @@ paths:
           example: evt_1795412000_1.jpg
         description: 只能是由合法event_id生成的<event_id>.jpg。
       description: 仅在cloud-storage/storage/images根目录下解析日期与文件名；拒绝路径分隔符、..、编码绕过和越出根目录的解析结果。非法路径返回400，图片不存在返回404；仅返回image/jpeg，不返回磁盘路径。
+  /api/v1/logs:
+    servers:
+    - url: http://192.168.10.10:8090
+      description: 联想PC cloud-storage日志接口，只在局域网提供。
+    post:
+      operationId: appendLogs
+      summary: 接收Fluent Bit结构化日志批次
+      tags:
+      - v0.3-nous
+      x-implementation-status: planned
+      description: 仅LAN内由PC接收，不代理到边缘。实现约定：按PC接收时的UTC日期，将整个批次的每条原始对象紧凑序列化为UTF-8单行JSON，按数组顺序逐条追加至cloud-storage/storage/logs/YYYY-MM-DD.log；字符串内换行转义。保留原始字段结构，不重命名、删减或补造字段，不依据源时间分文件，不写SQLite。全部追加成功后返回204无响应体；非法JSON/非对象数组返回400，写入失败返回500。追加语义允许重试批次产生重复行。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogBatch'
+            example:
+            - date: '2026-11-23T05:33:20.123Z'
+              MESSAGE: 采集节点已启动
+              _SYSTEMD_UNIT: edge-vision.service
+      responses:
+        '204':
+          description: 全部日志对象已追加，无响应体。
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+    get:
+      operationId: tailLogs
+      summary: 按PC接收日期查询最近日志行
+      tags:
+      - v0.3-nous
+      x-implementation-status: planned
+      description: 仅查询PC本地cloud-storage/storage/logs/YYYY-MM-DD.log，不向边缘请求或代理日志。date以PC接收UTC日期为准；校验真实日历日期并限定文件位于logs根目录。返回最近tail行，保持这些行原有写入顺序；不足tail行返回全部，空文件返回200空内容，缺文件返回404。非法日期/条数返回400，读取失败返回500；错误沿用统一Error。
+      parameters:
+      - name: date
+        in: query
+        required: true
+        description: PC接收时UTC日期，必须为YYYY-MM-DD的真实日历日期。
+        schema:
+          type: string
+          format: date
+          pattern: ^\d{4}-\d{2}-\d{2}$
+          example: '2026-11-23'
+      - name: tail
+        in: query
+        required: false
+        description: 最多读取的最近行数，返回仍按原写入顺序排列。
+        schema:
+          type: integer
+          default: 100
+          minimum: 1
+          maximum: 1000
+      responses:
+        '200':
+          description: UTF-8 NDJSON文本，每行一条紧凑JSON日志；空文件返回空内容。
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+              example: '{"date":"2026-11-23T05:33:20.123Z","MESSAGE":"采集节点已启动","_SYSTEMD_UNIT":"edge-vision.service"}
+
+                '
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
 components:
   schemas:
     Error:
@@ -1006,6 +1082,19 @@ components:
       required:
       - status
       - db
+    LogRecord:
+      type: object
+      additionalProperties: true
+      description: 原始结构化日志对象，完整保留全部JSON字段及结构。不强制date、MESSAGE或_SYSTEMD_UNIT；时间字段和值格式由实际Fluent Bit模板决定。
+      example:
+        date: '2026-11-23T05:33:20.123Z'
+        MESSAGE: 采集节点已启动
+        _SYSTEMD_UNIT: edge-vision.service
+    LogBatch:
+      type: array
+      items:
+        $ref: '#/components/schemas/LogRecord'
+      description: Fluent Bit HTTP output Format json提交的对象数组；不接收单个对象或原始NDJSON请求。
   responses:
     BadRequest:
       description: 请求字段、参数范围、Base64/JPEG、图片路径或源初始化错误；切源失败保留原源，重复事件ID返回EVENT_EXISTS。
