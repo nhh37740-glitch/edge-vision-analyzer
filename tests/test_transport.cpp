@@ -15,10 +15,14 @@
 #include "core/frame_meta.hpp"
 #include "httplib.h"
 #include "nlohmann/json.hpp"
+#include "transport/event_tracker_node.hpp"
 #include "transport/genai_worker.hpp"
 
 namespace {
 
+using edge::EventOptions;
+using edge::EventTrackerNode;
+using edge::EventTrackerSnapshot;
 using edge::FrameMeta;
 using edge::FrameMetaPtr;
 using edge::GenAiTask;
@@ -41,6 +45,38 @@ FrameMetaPtr make_frame(std::uint64_t frame_id, std::uint8_t seed) {
   }
   return frame;
 }
+
+FrameMetaPtr make_detection_frame(std::uint64_t frame_id, std::int64_t timestamp_ms,
+                                  float score) {
+  FrameMetaPtr frame = make_frame(frame_id, static_cast<std::uint8_t>(frame_id));
+  frame->timestamp_ms = timestamp_ms;
+  TargetBox box;
+  box.class_id = 0;
+  box.label = "person";
+  box.score = score;
+  box.x = 0.2f;
+  box.y = 0.1f;
+  box.w = 0.3f;
+  box.h = 0.6f;
+  frame->targets.push_back(box);
+  return frame;
+}
+
+FrameMetaPtr make_silent_frame(std::uint64_t frame_id, std::int64_t timestamp_ms) {
+  FrameMetaPtr frame = make_frame(frame_id, static_cast<std::uint8_t>(frame_id));
+  frame->timestamp_ms = timestamp_ms;
+  return frame;
+}
+
+// Exposes the protected process() hook so tracker state can be driven without
+// starting the node worker thread.
+class FeedableEventTracker : public EventTrackerNode {
+ public:
+  explicit FeedableEventTracker(EventOptions options)
+      : EventTrackerNode(std::move(options)) {}
+
+  FrameMetaPtr feed(FrameMetaPtr meta) { return process(std::move(meta)); }
+};
 
 GenAiTask make_task(FrameMetaPtr frame, std::string event_id) {
   GenAiTask task;
@@ -359,6 +395,116 @@ TEST(Transport, QueueKeepsLatestTaskAndReleasesDroppedFrame) {
   worker.stop();
   EXPECT_TRUE(weak_first.expired());
   EXPECT_TRUE(weak_third.expired());
+}
+
+TEST(Transport, EventTrackerSubmitsOneTaskPerEvent) {
+  std::vector<GenAiTask> tasks;
+  EventOptions options;
+  options.end_grace_sec = 5;
+  options.cooldown_sec = 15;
+  options.submit = [&tasks](GenAiTask task) {
+    tasks.push_back(std::move(task));
+    return true;
+  };
+  FeedableEventTracker tracker(options);
+
+  tracker.feed(make_detection_frame(1, 1000, 0.60f));
+  tracker.feed(make_detection_frame(2, 1200, 0.92f));
+  FrameMetaPtr output = tracker.feed(make_detection_frame(3, 1400, 0.75f));
+
+  ASSERT_EQ(tasks.size(), 1u);
+  EXPECT_EQ(tasks[0].event_id, "evt_1000_1");
+  EXPECT_EQ(tasks[0].frame_id, 1u);
+  EXPECT_EQ(tasks[0].timestamp_ms, 1000);
+  EXPECT_EQ(tasks[0].top_label, "person");
+  EXPECT_NEAR(tasks[0].top_score, 0.60, 1e-6);
+  ASSERT_EQ(tasks[0].targets.size(), 1u);
+  ASSERT_TRUE(tasks[0].frame != nullptr);
+  EXPECT_EQ(tasks[0].frame->frame_id, 1u);
+  EXPECT_EQ(output->active_event_id, "evt_1000_1");
+
+  const EventTrackerSnapshot state = tracker.snapshot();
+  EXPECT_TRUE(state.active);
+  EXPECT_TRUE(state.triggered);
+  EXPECT_EQ(state.event_id, "evt_1000_1");
+  EXPECT_NEAR(state.best_target.score, 0.92, 1e-6);
+  EXPECT_EQ(state.started_ms, 1000);
+  EXPECT_EQ(state.last_active_ms, 1400);
+  EXPECT_EQ(state.last_trigger_ms, 1000);
+}
+
+TEST(Transport, EventTrackerCooldownBlocksTaskButKeepsActiveState) {
+  std::vector<GenAiTask> tasks;
+  EventOptions options;
+  options.end_grace_sec = 2;
+  options.cooldown_sec = 15;
+  options.submit = [&tasks](GenAiTask task) {
+    tasks.push_back(std::move(task));
+    return true;
+  };
+  FeedableEventTracker tracker(options);
+
+  tracker.feed(make_detection_frame(10, 1000, 0.50f));
+  ASSERT_EQ(tasks.size(), 1u);
+
+  // The event ends after the 2 second grace window.
+  tracker.feed(make_silent_frame(11, 4000));
+  ASSERT_FALSE(tracker.snapshot().active);
+
+  // Cooldown still blocks the task, but the active state is established.
+  FrameMetaPtr output = tracker.feed(make_detection_frame(12, 5000, 0.60f));
+  EXPECT_EQ(tasks.size(), 1u);
+  EventTrackerSnapshot state = tracker.snapshot();
+  EXPECT_TRUE(state.active);
+  EXPECT_FALSE(state.triggered);
+  EXPECT_EQ(state.event_id, "evt_5000_12");
+  EXPECT_EQ(output->active_event_id, "evt_5000_12");
+
+  // Continuous targets refresh the active window and best target only.
+  tracker.feed(make_detection_frame(13, 6000, 0.97f));
+  state = tracker.snapshot();
+  EXPECT_TRUE(state.active);
+  EXPECT_FALSE(state.triggered);
+  EXPECT_NEAR(state.best_target.score, 0.97, 1e-6);
+  EXPECT_EQ(state.last_active_ms, 6000);
+  EXPECT_EQ(state.last_trigger_ms, 1000);
+  EXPECT_EQ(tasks.size(), 1u);
+}
+
+TEST(Transport, EventTrackerGraceReleaseAllowsNextEvent) {
+  std::vector<GenAiTask> tasks;
+  EventOptions options;
+  options.end_grace_sec = 2;
+  options.cooldown_sec = 2;
+  options.submit = [&tasks](GenAiTask task) {
+    tasks.push_back(std::move(task));
+    return true;
+  };
+  FeedableEventTracker tracker(options);
+
+  tracker.feed(make_detection_frame(20, 1000, 0.80f));
+  ASSERT_EQ(tasks.size(), 1u);
+
+  // Still inside the grace window.
+  tracker.feed(make_silent_frame(21, 2500));
+  EXPECT_TRUE(tracker.snapshot().active);
+  EXPECT_EQ(tracker.snapshot().event_id, "evt_1000_20");
+
+  // Grace expires: active state and its event id are released.
+  FrameMetaPtr output = tracker.feed(make_silent_frame(22, 3000));
+  const EventTrackerSnapshot released = tracker.snapshot();
+  EXPECT_FALSE(released.active);
+  EXPECT_FALSE(released.triggered);
+  EXPECT_TRUE(released.event_id.empty());
+  EXPECT_TRUE(output->active_event_id.empty());
+
+  // Cooldown also elapsed, so the next event triggers normally.
+  output = tracker.feed(make_detection_frame(23, 3200, 0.70f));
+  ASSERT_EQ(tasks.size(), 2u);
+  EXPECT_EQ(tasks[1].event_id, "evt_3200_23");
+  EXPECT_NE(tasks[0].event_id, tasks[1].event_id);
+  EXPECT_TRUE(tracker.snapshot().active);
+  EXPECT_EQ(output->active_event_id, "evt_3200_23");
 }
 
 }  // namespace

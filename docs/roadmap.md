@@ -1,14 +1,14 @@
 # Edge Vision Analyzer — 里程碑、内部契约与验收
 
-状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，v0.2 的帧差漏斗 MotionNode 与 NcnnDetectorNode 模块已实现（尚未接入运行入口），v0.3 的 JPEG／Base64 编码与 `GenAiWorker` 异步投递已实现（未接入运行入口，事件聚合与 PC 存储服务待实现），离线单测已覆盖上述模块，真机验收待补。更新日期：2026-11-24（北京时间）。
+状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，v0.2 的帧差漏斗 MotionNode 与 NcnnDetectorNode 模块已实现（尚未接入运行入口），v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现（未接入运行入口），PC 存储服务已实现，部署脚本与模板已就绪，离线单测已覆盖上述模块，真机验收待补。更新日期：2026-11-24（北京时间）。
 
 本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-009。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.example.json](../config/config.example.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
 
 ## 1. 当前执行边界与后续启动条件
 
-当前已实现 C++17 构建骨架、aarch64 工具链、`src/core`／`src/common` 的节点框架、配置与指标，`src/capture` 的 FFmpeg 拉流、RGB24 解码、截帧和仅视频 remux 录片，`src/streamer` 的 OSD 标注与按需 JPEG／MJPEG／RTSP 输出，`src/transport` 的 JPEG／Base64 编码与 `GenAiWorker` 异步投递，以及 `src/api` 的 health、stats、config 读取和 source-switch 控制面；上述模块均有离线测试覆盖，其中检测、推流、事件聚合与投递模块尚未接入运行入口。EventTrackerNode、PC 存储服务与部署仍待实现。FastAPI `server.py` 在 `v0.3-nous` 实现。所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
+当前已实现 C++17 构建骨架、aarch64 工具链、`src/core`／`src/common` 的节点框架、配置与指标，`src/capture` 的 FFmpeg 拉流、RGB24 解码、截帧和仅视频 remux 录片，`src/streamer` 的 OSD 标注与按需 JPEG／MJPEG／RTSP 输出，`src/transport` 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合，以及 `src/api` 的 health、stats、config 读取和 source-switch 控制面；上述模块均有离线测试覆盖，其中检测、推流、事件聚合与投递模块尚未接入运行入口。PC 存储服务已实现，部署脚本与模板已就绪，真机验收待执行。所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
-当前仓库包含协作模板、GitHub Actions、根 [CMakeLists.txt](../CMakeLists.txt) 的 C++17 构建骨架和 `cmake/aarch64-toolchain.cmake`；Issue #1 已使 `edge_core` 与 `test_build` 可构建，Issue #2 增加 `edge_common` 与 `test_core`，Issue #3 增加 `edge_capture`，Issue #4 增加 `edge_api` 与运行入口，Issue #5 增加 `test_capture` 与 `test_api` 离线用例；其余目标随 `v0.1-oculus` 的各项 Issue 加入。FastAPI `server.py` 在 `v0.3-nous` 实现。接手 Agent 在收到开发指令后实施业务，所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
+当前仓库包含协作模板、GitHub Actions、根 [CMakeLists.txt](../CMakeLists.txt) 的 C++17 构建骨架和 `cmake/aarch64-toolchain.cmake`；Issue #1 已使 `edge_core` 与 `test_build` 可构建，Issue #2 增加 `edge_common` 与 `test_core`，Issue #3 增加 `edge_capture`，Issue #4 增加 `edge_api` 与运行入口，Issue #5 增加 `test_capture` 与 `test_api` 离线用例；其余目标随 `v0.1-oculus` 的各项 Issue 加入。FastAPI `server.py` 已在 `v0.3-nous` 实现。接手 Agent 在收到开发指令后实施业务，所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
 每次获准实现前，先列明“业务模块 → 修改／新增的专属一级模块 → 用户可完成的功能”，明确文件范围、数据归属和验收方式。边缘实时视觉独占 `src/` 技术范围，PC 事件存储独占 `cloud-storage/` 及历史数据；两者经 HTTP 契约协作，不互相借用一级模块。具体责任说明以 [architecture](architecture.md) 为准。
 
@@ -131,7 +131,7 @@ edge-vision-analyzer/
 │   ├── README.md                       # 本轮契约与后续启动说明
 │   ├── requirements.txt                # fastapi / uvicorn / pydantic
 │   ├── schema.sql                      # 本轮 SQLite 表与索引契约
-│   ├── server.py                       # 当前为空；v0.3-nous 后续实现
+│   ├── server.py                       # FastAPI + SQLite 服务（已实现）
 │   └── storage/                        # 运行时整体忽略，不入库
 │       ├── images/YYYY-MM-DD/<event_id>.jpg
 │       └── events.db
@@ -261,9 +261,9 @@ class BaseNode {
 | 里程碑／规划发版 Tag | 感官意象 | 功能目标 | 当前状态 |
 | --- | --- | --- | --- |
 | `v0.1-oculus` | Oculus，神目／视觉 | 接入手机有线流和本地循环视频，完成采集与基础控制面 | 已实现（本机回环与离线验证）；真机阶段 A 与发版待补 |
-| `v0.2-discern` | Discern，洞察／明辨 | 帧差漏斗与 NCNN 端侧目标检测 | 待实现 |
-| `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 待实现 |
-| `v1.0-vox` | Vox，神谕之声／宣示 | OSD、MJPEG／RTSP、systemd 守护交付 | 待实现 |
+| `v0.2-discern` | Discern，洞察／明辨 | 帧差漏斗与 NCNN 端侧目标检测 | 已实现（未接入运行入口） |
+| `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 事件聚合与异步投递已实现（未接入运行入口），PC 存储服务已实现；真机验收待补 |
+| `v1.0-vox` | Vox，神谕之声／宣示 | OSD、MJPEG／RTSP、systemd 守护交付 | 模块与部署脚本／模板已就绪；运行入口组装与真机验收待补 |
 
 验收完成后按 [AGENTS.md](../AGENTS.md) 发布。任一 `v*` Tag 都要求 x86_64 构建及 CTest、云存储离线 pytest、aarch64 构建及打包。打 Tag 前确认云存储已有可运行测试、`deploy/edge-vision.service` 模板已在目标机验收，且 CMake 可安装 `bin/edge-vision-analyzer`。这是首个 Release 同样适用的前置条件。
 
@@ -333,14 +333,14 @@ class BaseNode {
 **全部交付件：**
 
 - 实现 [start_pc_services.sh](../scripts/start_pc_services.sh)，在联想 PC 启动并分别探活 `llama-server :8080` 与 `cloud-storage :8090`。脚本最多 50 行，本轮已提交注释占位。
-- `src/transport/event_tracker_node.hpp` / `.cpp`：仅当前活跃事件的瞬时聚合状态和触发节流。（待实现）
+- `src/transport/event_tracker_node.hpp` / `.cpp`：仅当前活跃事件的瞬时聚合状态和触发节流。（已实现，未接入运行入口）
 - `src/transport/jpeg_base64.hpp` / `.cpp`：干净 JPEG 一次内存编码与 Base64 复用。（已实现）
 - `src/transport/genai_worker.hpp` / `.cpp`：单后台线程、队列 1，顺序执行可选 LLM 和可选 Storage HTTP。（已实现，未接入运行入口）
 - 更新边缘健康接口，分别报告 LLM `:8080` 与 Storage `:8090` 状态；在配置热更新中接入 `storage.enabled`。边缘 `:8081` 不提供历史事件列表。
-- `cloud-storage/server.py` 后续实现为联想 PC 独立 FastAPI + SQLite 进程，监听 `:8090`，与 `llama-server :8080` 和 C++ ARM64 构建解耦。
-- 完成 `cloud-storage/README.md` 的实际启动／运行说明，使用 `requirements.txt` 中 `fastapi`、`uvicorn`、`pydantic` 和 `schema.sql` 的表／索引契约；本轮已有契约和空占位不算服务实现。
+- `cloud-storage/server.py` 已实现为联想 PC 独立 FastAPI + SQLite 进程，监听 `:8090`，与 `llama-server :8080` 和 C++ ARM64 构建解耦。
+- `cloud-storage/README.md` 已提供实际启动／运行说明，使用 `requirements.txt` 中 `fastapi`、`uvicorn`、`pydantic` 和 `schema.sql` 的表／索引契约，并有离线 pytest 覆盖。
 - PC 实现健康、事件和图片接口，并接收和查询 `GET`／`POST /api/v1/logs`。接口语义和日志分日方式以 [api](api.md) / [OpenAPI](openapi.yaml) 为准。
-- `tests/test_transport.cpp`，3～5 个离线用例；后续 PC 服务另用临时目录和临时 SQLite 验证存储／分页，不依赖真实模型、私人影像或真实运行数据库。当前已实现 4 个 `GenAiWorker`／JPEG 用例，覆盖两开关关闭、仅 LLM、LLM 失败后空摘要投递和队列丢旧释放；事件聚合用例待 `EventTrackerNode` 落地后补充。
+- `tests/test_transport.cpp`，3～5 个离线用例；后续 PC 服务另用临时目录和临时 SQLite 验证存储／分页，不依赖真实模型、私人影像或真实运行数据库。当前已实现 4 个 `GenAiWorker`／JPEG 用例与 3 个 `EventTrackerNode` 用例，覆盖两开关关闭、仅 LLM、LLM 失败后空摘要投递、队列丢旧释放，以及单事件单任务、冷却拦截并持续更新、宽限期后释放并允许新事件。
 
 **内部架构：**
 
@@ -395,7 +395,7 @@ FastAPI `POST /api/v1/events` 解码干净 JPEG，把图片写入 `cloud-storage
 - `src/streamer/stream_out_node.hpp` / `.cpp`。
 - `src/streamer/rtsp_pusher.hpp` / `.cpp`。
 - `src/main.cpp`：声明式 `BaseNode::attach_next()` 组装与 `SIGINT` / `SIGTERM` 优雅退出。
-- 在目标机验证已有 `deploy/edge-vision.service`、`deploy/journald-edge.conf` 和 `deploy/fluent-bit.conf`，并实现 [deploy_to_box.sh](../scripts/deploy_to_box.sh)，统一对时、打印环境、传包、重启和验活，最多 50 行。阶段 A 真机验收可按相同流程手动执行。
+- 在目标机验证已有 `deploy/edge-vision.service`、`deploy/journald-edge.conf` 和 `deploy/fluent-bit.conf`，并已实现 [deploy_to_box.sh](../scripts/deploy_to_box.sh)，统一对时、打印环境、传包、重启和验活，最多 50 行。脚本与模板就绪，真机验收待执行。
 - `ApiServer` 补充 `GET /api/v1/snapshot.jpg` 和 `GET /api/v1/stream`。
 - `tests/test_streamer.cpp`，3～5 个离线用例。
 - 完善 `README.md`：架构图、部署步骤、实测性能指标表；发布／部署／现场验收结果分别记录。
