@@ -11,6 +11,10 @@ include(CTest)
 # FFmpeg or HTTP headers globally, and do not glob sources into the executable.
 find_package(Threads REQUIRED)
 find_package(nlohmann_json 3.10 REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
+  libavformat libavcodec libavutil libswscale)
+find_path(STB_INCLUDE_DIR NAMES stb_image_write.h PATH_SUFFIXES stb REQUIRED)
 
 add_library(edge_core STATIC
   src/core/base_node.cpp
@@ -27,9 +31,17 @@ add_library(edge_common STATIC
 target_include_directories(edge_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(edge_common PUBLIC nlohmann_json::nlohmann_json)
 
+add_library(edge_capture STATIC
+  src/capture/capture_node.cpp
+  src/capture/frame_dumper.cpp
+  src/capture/remux_recorder.cpp
+)
+target_include_directories(edge_capture PRIVATE ${STB_INCLUDE_DIR})
+target_link_libraries(edge_capture PUBLIC edge_core edge_common PkgConfig::FFMPEG)
+
 # Future libraries keep their own sources and direct dependencies:
 #   edge_common    -> nlohmann_json::nlohmann_json
-#   edge_capture   -> edge_core, edge_common, FFmpeg
+#   edge_capture   -> edge_core, edge_common, FFmpeg, stb
 #   edge_detector  -> edge_core, edge_common, NCNN
 #   edge_transport -> edge_core, edge_common, cpp-httplib, stb
 #   edge_streamer  -> edge_core, edge_common, stb

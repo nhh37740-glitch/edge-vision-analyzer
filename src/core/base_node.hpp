@@ -42,6 +42,7 @@ class BaseNode {
   virtual void run();
   void emit(FrameMetaPtr meta);
   bool stop_requested() const { return !running_.load(); }
+  void set_state(NodeState state) { state_.store(state); }
 
  private:
   std::string name_;
