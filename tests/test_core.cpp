@@ -9,6 +9,7 @@
 #include <thread>
 
 #include "common/config.hpp"
+#include "common/metrics.hpp"
 #include "core/base_node.hpp"
 #include "core/bounded_queue.hpp"
 #include "core/frame_meta.hpp"
@@ -146,6 +147,32 @@ TEST(BaseNode, CountsFramesDroppedByFullInputQueue) {
 
   node->release();
   node->stop();
+}
+
+TEST(Metrics, CountsFramesAndAveragesSamples) {
+  edge::Metrics metrics;
+  const nlohmann::json empty = metrics.to_json();
+  EXPECT_EQ(empty.at("detect_fps").get<double>(), 0.0);
+  EXPECT_EQ(empty.at("motion_skip_ratio").get<double>(), 0.0);
+  EXPECT_EQ(empty.at("avg_infer_ms").get<double>(), 0.0);
+  EXPECT_EQ(empty.at("avg_llm_latency_ms").get<double>(), 0.0);
+
+  metrics.on_detect_frame();
+  metrics.on_motion_skip();
+  metrics.on_motion_skip();
+  metrics.on_motion_skip();
+  metrics.add_infer_ms(10.0);
+  metrics.add_infer_ms(20.0);
+  metrics.add_llm_latency_ms(100.0);
+  metrics.add_llm_latency_ms(200.0);
+
+  EXPECT_EQ(metrics.detect_frames(), 1u);
+  EXPECT_EQ(metrics.motion_skips(), 3u);
+  const nlohmann::json stats = metrics.to_json();
+  EXPECT_GT(stats.at("detect_fps").get<double>(), 0.0);
+  EXPECT_DOUBLE_EQ(stats.at("motion_skip_ratio").get<double>(), 0.8);
+  EXPECT_DOUBLE_EQ(stats.at("avg_infer_ms").get<double>(), 15.0);
+  EXPECT_DOUBLE_EQ(stats.at("avg_llm_latency_ms").get<double>(), 150.0);
 }
 
 TEST(Config, LoadsExampleAndSerializesEverySection) {

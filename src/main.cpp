@@ -111,7 +111,8 @@ int main(int argc, char** argv) {
   auto metrics = std::make_shared<edge::Metrics>();
   auto capture = std::make_shared<edge::CaptureNode>(capture_options, metrics);
 
-  auto motion = std::make_shared<edge::MotionNode>(config.detector.motion_mad_threshold);
+  auto motion = std::make_shared<edge::MotionNode>(config.detector.motion_mad_threshold,
+                                                   metrics);
 
   edge::NcnnDetectorNode::Options detector_options;
   detector_options.model_param = config.detector.model_param;
@@ -122,7 +123,7 @@ int main(int argc, char** argv) {
   detector_options.num_threads = config.detector.num_threads;
   detector_options.quantization = config.detector.quantization;
   detector_options.model_candidates = config.detector.model_candidates;
-  auto detector = std::make_shared<edge::NcnnDetectorNode>(detector_options);
+  auto detector = std::make_shared<edge::NcnnDetectorNode>(detector_options, metrics);
   if (!detector->load()) {
     // The pipeline stays usable without weights: frames pass through unchanged.
     std::fprintf(stderr,
@@ -131,7 +132,7 @@ int main(int argc, char** argv) {
 
   std::shared_ptr<edge::GenAiWorker> worker;
   if (config.llm.enabled || config.storage.enabled) {
-    worker = std::make_shared<edge::GenAiWorker>(config.llm, config.storage);
+    worker = std::make_shared<edge::GenAiWorker>(config.llm, config.storage, metrics);
   }
 
   edge::EventOptions event_options;

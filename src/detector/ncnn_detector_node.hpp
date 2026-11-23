@@ -17,6 +17,8 @@ class Net;
 
 namespace edge {
 
+class Metrics;
+
 // Runs YOLO-Fastest-v2 style ncnn detection only on frames flagged with
 // has_motion; other frames pass through untouched. Input frames are letterboxed
 // to 320x320, decoded to normalized TargetBox values, filtered by label and
@@ -42,7 +44,8 @@ class NcnnDetectorNode : public BaseNode {
     std::size_t max_targets = 64;
   };
 
-  explicit NcnnDetectorNode(Options options);
+  explicit NcnnDetectorNode(Options options,
+                            std::shared_ptr<Metrics> metrics = nullptr);
   ~NcnnDetectorNode() override;
 
   NcnnDetectorNode(const NcnnDetectorNode&) = delete;
@@ -71,6 +74,7 @@ class NcnnDetectorNode : public BaseNode {
                 const std::string& quantization);
 
   Options options_;
+  std::shared_ptr<Metrics> metrics_;
   std::unique_ptr<ncnn::Net> net_;
   std::string input_name_;
   std::vector<std::string> output_names_;

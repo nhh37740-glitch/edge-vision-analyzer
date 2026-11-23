@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "common/config.hpp"
+#include "common/metrics.hpp"
 #include "core/frame_meta.hpp"
 #include "httplib.h"
 #include "nlohmann/json.hpp"
@@ -253,6 +254,29 @@ TEST(Transport, LlmOnlySendsOpenAiVisionRequestAndParsesSummary) {
   EXPECT_EQ(result.llm_summary, "一名男子正在走动。");
   EXPECT_GE(result.llm_latency_ms, 0.0);
   worker.stop();
+}
+
+TEST(Transport, LlmLatencyIsRecordedInMetrics) {
+  MockServer mock;
+  ASSERT_GT(mock.port(), 0);
+  mock.server().Post(
+      "/v1/chat/completions", [](const httplib::Request&, httplib::Response& response) {
+        // Keep the round trip measurable so the recorded average is non-zero.
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        response.set_content(R"({"choices":[{"message":{"content":"ok"}}]})",
+                             "application/json");
+      });
+  mock.start();
+
+  auto metrics = std::make_shared<edge::Metrics>();
+  GenAiWorker worker(llm_config(mock.port(), true),
+                     storage_config(mock.port(), false), metrics);
+  worker.start();
+  ASSERT_TRUE(worker.submit(make_task(make_frame(3, 9), "evt_metrics")));
+  ASSERT_TRUE(wait_until([&] { return worker.stats().processed == 1; }));
+  worker.stop();
+
+  EXPECT_GT(metrics->to_json().at("avg_llm_latency_ms").get<double>(), 0.0);
 }
 
 TEST(Transport, LlmRequestUsesSelectedModelAndFallsBackToBase) {
