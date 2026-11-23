@@ -38,6 +38,7 @@ target_link_libraries(edge_common PUBLIC nlohmann_json::nlohmann_json)
 add_library(edge_detector STATIC
   src/detector/motion_node.cpp
 )
+# NCNN joins this target with NcnnDetectorNode (Issue #42).
 target_link_libraries(edge_detector PUBLIC edge_core edge_common)
 
 add_library(edge_capture STATIC
