@@ -1,0 +1,178 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-policy:
+    name: pr-policy
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Require exactly one open issue in this repository
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Read event data directly; never interpolate PR text into source code.
+            const body = context.payload.pull_request.body || '';
+            const firstLine = body.split(/\r?\n/u)[0];
+            const first = /^(Closes|Fixes) #([1-9]\d*)$/iu.exec(firstLine);
+            if (!first) {
+              core.setFailed('PR first line must be exactly Closes #N or Fixes #N.');
+              return;
+            }
+            const closingReference = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b[\s:]*((?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#\d+|https?:\/\/[^\s<>]+\/(?:issues|pull)\/\d+)/giu;
+            const references = [...body.matchAll(closingReference)];
+            if (references.length !== 1 || references[0].index !== 0 ||
+                references[0][1] !== `#${first[2]}`) {
+              core.setFailed('PR body must contain exactly one closing reference, using local #N syntax.');
+              return;
+            }
+            const issueNumber = Number(first[2]);
+            if (!Number.isSafeInteger(issueNumber)) {
+              core.setFailed('Issue number is invalid.');
+              return;
+            }
+            const { data: issue } = await github.rest.issues.get({
+              ...context.repo,
+              issue_number: issueNumber
+            });
+            if (issue.pull_request || issue.state !== 'open') {
+              core.setFailed('The linked item must be an open issue, not a pull request.');
+              return;
+            }
+            core.info(`Linked open issue #${issueNumber} in ${context.repo.owner}/${context.repo.repo}.`);
+
+  changes:
+    name: changes
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: read
+    outputs:
+      edge_cpp: ${{ steps.filter.outputs.edge_cpp }}
+      cloud_storage: ${{ steps.filter.outputs.cloud_storage }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            edge_cpp:
+              - 'src/**'
+              - 'tests/**'
+              - 'CMakeLists.txt'
+              - 'cmake/**'
+            cloud_storage:
+              - 'cloud-storage/**'
+
+  edge-cpp:
+    name: edge-cpp
+    needs: changes
+    if: ${{ needs.changes.outputs.edge_cpp == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Detect C++ sources beyond the initial skeleton
+        id: sources
+        shell: bash
+        run: |
+          if find src tests -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.c' -o -name '*.hpp' -o -name '*.hh' -o -name '*.hxx' -o -name '*.h' \) -print -quit | grep -q .; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+            echo 'Initial skeleton has no C++ sources; no C++ build is run.'
+          fi
+      - name: Install native dependencies and ARM64 compiler
+        if: steps.sources.outputs.present == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libgtest-dev g++-aarch64-linux-gnu
+      - name: Native CMake build and offline CTest
+        if: steps.sources.outputs.present == 'true'
+        run: |
+          cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build build-native --parallel 2
+          ctest --test-dir build-native --output-on-failure --no-tests=error
+      - name: ARM64 cross-compile without target test execution
+        if: steps.sources.outputs.present == 'true'
+        run: |
+          cmake -S . -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-toolchain.cmake -DBUILD_TESTING=OFF
+          cmake --build build-arm64 --parallel 2
+
+  cloud-storage:
+    name: cloud-storage
+    needs: changes
+    if: ${{ needs.changes.outputs.cloud_storage == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Python dependencies
+        run: python3 -m pip install -r cloud-storage/requirements.txt pytest httpx
+      - name: Check Python syntax
+        run: python3 -m py_compile cloud-storage/server.py
+      - name: Run offline pytest with the initial empty-file exception
+        shell: bash
+        run: |
+          set +e
+          python3 -m pytest -q cloud-storage
+          result=$?
+          set -e
+          if [ "$result" -eq 5 ]; then
+            python3 - <<'PY'
+          from pathlib import Path
+          root = Path('cloud-storage')
+          sources = list(root.rglob('*.py'))
+          initial = sources == [root / 'server.py'] and (root / 'server.py').stat().st_size == 0
+          if not initial:
+              raise SystemExit('Python implementation or additional Python files require collected tests.')
+          print('Only the initial empty server.py exists; pytest has no tests yet.')
+          PY
+          else
+            exit "$result"
+          fi
+
+  ci-gate:
+    name: ci-gate
+    needs: [pr-policy, changes, edge-cpp, cloud-storage]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Require policy, change detection and every selected component
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          needs = json.loads(os.environ['NEEDS_JSON'])
+          for job in ('pr-policy', 'changes'):
+              if needs[job]['result'] != 'success':
+                  raise SystemExit(f"{job} did not succeed: {needs[job]['result']}")
+          for job, flag in (('edge-cpp', 'edge_cpp'), ('cloud-storage', 'cloud_storage')):
+              selected = needs['changes']['outputs'].get(flag)
+              if selected not in ('true', 'false'):
+                  raise SystemExit(f'Invalid or missing change-filter output: {flag}')
+              expected = 'success' if selected == 'true' else 'skipped'
+              actual = needs[job]['result']
+              if actual != expected:
+                  raise SystemExit(f'{job}: expected {expected}, got {actual}')
+          print('All required PR checks passed.')
+          PY
