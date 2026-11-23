@@ -20,28 +20,60 @@ jobs:
       issues: read
       pull-requests: read
     steps:
-      - name: Require exactly one open issue in this repository
+      - name: 核对 PR 长度与唯一 Issue
         uses: actions/github-script@v7
         with:
           script: |
-            // Read event data directly; never interpolate PR text into source code.
+            // 直接读取事件数据，避免将 PR 正文插入可执行脚本。
             const body = context.payload.pull_request.body || '';
+            // 只排除已闭合的围栏代码块；行内代码和未闭合围栏仍计数。
+            const prose = [];
+            let fence = null;
+            let pending = [];
+            for (const line of body.match(/[^\n]*\n|[^\n]+$/gu) || []) {
+              const text = line.replace(/\r?\n$/u, '');
+              if (!fence) {
+                const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(text);
+                if (opening && (opening[1][0] !== '`' || !opening[2].includes('`'))) {
+                  fence = { marker: opening[1][0], width: opening[1].length };
+                  pending = [line];
+                } else {
+                  prose.push(line);
+                }
+                continue;
+              }
+              pending.push(line);
+              const closing = /^ {0,3}(`+|~+)[ \t]*$/u.exec(text);
+              if (closing && closing[1][0] === fence.marker && closing[1].length >= fence.width) {
+                // 闭合围栏后的换行仍属于正文。
+                prose.push(line.slice(text.length));
+                fence = null;
+                pending = [];
+              }
+            }
+            if (fence) prose.push(...pending);
+            const characterCount = Array.from(prose.join('')).length;
+            core.info(`PR 描述字符数：${characterCount}（已排除闭合代码块）。`);
+            if (characterCount > 500) {
+              core.setFailed('PR 描述过长，请精简至 400 字以内');
+              return;
+            }
             const firstLine = body.split(/\r?\n/u)[0];
             const first = /^(Closes|Fixes) #([1-9]\d*)$/iu.exec(firstLine);
             if (!first) {
-              core.setFailed('PR first line must be exactly Closes #N or Fixes #N.');
+              core.setFailed('PR 首行必须为 Closes #N 或 Fixes #N。');
               return;
             }
             const closingReference = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b[\s:]*((?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#\d+|https?:\/\/[^\s<>]+\/(?:issues|pull)\/\d+)/giu;
             const references = [...body.matchAll(closingReference)];
             if (references.length !== 1 || references[0].index !== 0 ||
                 references[0][1] !== `#${first[2]}`) {
-              core.setFailed('PR body must contain exactly one closing reference, using local #N syntax.');
+              core.setFailed('PR 正文只能关闭当前仓库的一个 Issue，请使用 #N。');
               return;
             }
             const issueNumber = Number(first[2]);
             if (!Number.isSafeInteger(issueNumber)) {
-              core.setFailed('Issue number is invalid.');
+              core.setFailed('Issue 编号无效。');
               return;
             }
             const { data: issue } = await github.rest.issues.get({
@@ -49,10 +81,10 @@ jobs:
               issue_number: issueNumber
             });
             if (issue.pull_request || issue.state !== 'open') {
-              core.setFailed('The linked item must be an open issue, not a pull request.');
+              core.setFailed('关联项必须是当前仓库尚未关闭的 Issue，不能是 PR。');
               return;
             }
-            core.info(`Linked open issue #${issueNumber} in ${context.repo.owner}/${context.repo.repo}.`);
+            core.info(`已关联 ${context.repo.owner}/${context.repo.repo} 的未关闭 Issue #${issueNumber}。`);
 
   changes:
     name: changes
