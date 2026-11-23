@@ -15,11 +15,13 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libavutil/channel_layout.h>
 #include <libavutil/frame.h>
 #include <libavutil/pixfmt.h>
 }
 
 #include "capture/capture_node.hpp"
+#include "capture/remux_recorder.hpp"
 #include "common/metrics.hpp"
 #include "core/node_state.hpp"
 
@@ -36,6 +38,15 @@ struct FormatDeleter {
         avio_closep(&context->pb);
       }
       avformat_free_context(context);
+    }
+  }
+};
+
+struct InputFormatDeleter {
+  void operator()(AVFormatContext* context) const {
+    if (context != nullptr) {
+      AVFormatContext* owned = context;
+      avformat_close_input(&owned);
     }
   }
 };
@@ -64,9 +75,9 @@ struct PacketDeleter {
   }
 };
 
-// Encodes a few tiny MPEG4 frames so capture tests never need repository media
-// or a live source.
-bool write_test_video(const std::string& path) {
+// Encodes a few tiny MPEG4 frames (and optionally a PCM audio track) so capture
+// tests never need repository media or a live source.
+bool write_test_video(const std::string& path, bool with_audio = false) {
   AVFormatContext* raw_format = nullptr;
   if (avformat_alloc_output_context2(&raw_format, nullptr, "avi", path.c_str()) < 0) {
     return false;
@@ -99,6 +110,29 @@ bool write_test_video(const std::string& path) {
   }
   stream->time_base = context->time_base;
 
+  std::unique_ptr<AVCodecContext, CodecDeleter> audio_context;
+  AVStream* audio_stream = nullptr;
+  if (with_audio) {
+    const AVCodec* audio_codec = avcodec_find_encoder(AV_CODEC_ID_PCM_S16LE);
+    if (audio_codec == nullptr) {
+      return false;
+    }
+    audio_stream = avformat_new_stream(format.get(), nullptr);
+    audio_context.reset(avcodec_alloc_context3(audio_codec));
+    if (audio_stream == nullptr || !audio_context) {
+      return false;
+    }
+    audio_context->sample_fmt = AV_SAMPLE_FMT_S16;
+    audio_context->sample_rate = 8000;
+    audio_context->ch_layout = AV_CHANNEL_LAYOUT_MONO;
+    audio_context->time_base = AVRational{1, audio_context->sample_rate};
+    if (avcodec_open2(audio_context.get(), audio_codec, nullptr) < 0 ||
+        avcodec_parameters_from_context(audio_stream->codecpar, audio_context.get()) < 0) {
+      return false;
+    }
+    audio_stream->time_base = audio_context->time_base;
+  }
+
   if (avio_open(&format->pb, path.c_str(), AVIO_FLAG_WRITE) < 0 ||
       avformat_write_header(format.get(), nullptr) < 0) {
     return false;
@@ -114,6 +148,23 @@ bool write_test_video(const std::string& path) {
   frame->height = context->height;
   if (av_frame_get_buffer(frame.get(), 32) < 0) {
     return false;
+  }
+
+  std::unique_ptr<AVFrame, FrameDeleter> audio_frame;
+  if (with_audio) {
+    audio_frame.reset(av_frame_alloc());
+    if (!audio_frame) {
+      return false;
+    }
+    audio_frame->format = audio_context->sample_fmt;
+    audio_frame->sample_rate = audio_context->sample_rate;
+    if (av_channel_layout_copy(&audio_frame->ch_layout, &audio_context->ch_layout) < 0) {
+      return false;
+    }
+    audio_frame->nb_samples = audio_context->sample_rate / 10;
+    if (av_frame_get_buffer(audio_frame.get(), 0) < 0) {
+      return false;
+    }
   }
 
   const int frame_count = 5;
@@ -141,6 +192,23 @@ bool write_test_video(const std::string& path) {
       av_interleaved_write_frame(format.get(), packet.get());
       av_packet_unref(packet.get());
     }
+    if (with_audio) {
+      if (av_frame_make_writable(audio_frame.get()) < 0) {
+        return false;
+      }
+      std::memset(audio_frame->data[0], index * 10,
+                  static_cast<std::size_t>(audio_frame->nb_samples) * 2);
+      audio_frame->pts = static_cast<std::int64_t>(index) * audio_frame->nb_samples;
+      if (avcodec_send_frame(audio_context.get(), audio_frame.get()) < 0) {
+        return false;
+      }
+      while (avcodec_receive_packet(audio_context.get(), packet.get()) == 0) {
+        av_packet_rescale_ts(packet.get(), audio_context->time_base, audio_stream->time_base);
+        packet->stream_index = audio_stream->index;
+        av_interleaved_write_frame(format.get(), packet.get());
+        av_packet_unref(packet.get());
+      }
+    }
   }
 
   avcodec_send_frame(context.get(), nullptr);
@@ -149,6 +217,15 @@ bool write_test_video(const std::string& path) {
     packet->stream_index = stream->index;
     av_interleaved_write_frame(format.get(), packet.get());
     av_packet_unref(packet.get());
+  }
+  if (with_audio) {
+    avcodec_send_frame(audio_context.get(), nullptr);
+    while (avcodec_receive_packet(audio_context.get(), packet.get()) == 0) {
+      av_packet_rescale_ts(packet.get(), audio_context->time_base, audio_stream->time_base);
+      packet->stream_index = audio_stream->index;
+      av_interleaved_write_frame(format.get(), packet.get());
+      av_packet_unref(packet.get());
+    }
   }
   return av_write_trailer(format.get()) >= 0;
 }
@@ -163,7 +240,8 @@ std::string unique_temp_path() {
 
 class TempVideo {
  public:
-  TempVideo() : path_(unique_temp_path()), valid_(write_test_video(path_)) {}
+  explicit TempVideo(bool with_audio = false)
+      : path_(unique_temp_path()), valid_(write_test_video(path_, with_audio)) {}
   ~TempVideo() {
     std::error_code ignored;
     std::filesystem::remove(path_, ignored);
@@ -234,6 +312,40 @@ TEST(Capture, RejectsInvalidSourceAndKeepsOriginal) {
   EXPECT_TRUE(node.switch_source(second.path(), false, error)) << error;
   EXPECT_EQ(node.source(), second.path());
   EXPECT_FALSE(node.loop());
+}
+
+TEST(Capture, RemuxWritesOnlyVideoTrack) {
+  TempVideo video(/*with_audio=*/true);
+  ASSERT_TRUE(video.valid());
+
+  AVFormatContext* raw_input = nullptr;
+  ASSERT_GE(avformat_open_input(&raw_input, video.path().c_str(), nullptr, nullptr), 0);
+  std::unique_ptr<AVFormatContext, InputFormatDeleter> input(raw_input);
+  ASSERT_GE(avformat_find_stream_info(input.get(), nullptr), 0);
+  ASSERT_GE(input->nb_streams, 2u);
+
+  const std::string output_path = unique_temp_path();
+  edge::RemuxRecorder recorder;
+  std::string error;
+  ASSERT_TRUE(recorder.open(output_path, input.get(), 0, error)) << error;
+
+  std::unique_ptr<AVPacket, PacketDeleter> packet(av_packet_alloc());
+  ASSERT_TRUE(packet != nullptr);
+  while (av_read_frame(input.get(), packet.get()) >= 0) {
+    recorder.write_packet(packet.get());
+    av_packet_unref(packet.get());
+  }
+  recorder.close();
+
+  AVFormatContext* raw_output = nullptr;
+  ASSERT_GE(avformat_open_input(&raw_output, output_path.c_str(), nullptr, nullptr), 0);
+  std::unique_ptr<AVFormatContext, InputFormatDeleter> output(raw_output);
+  ASSERT_GE(avformat_find_stream_info(output.get(), nullptr), 0);
+  EXPECT_EQ(output->nb_streams, 1u);
+  EXPECT_EQ(output->streams[0]->codecpar->codec_type, AVMEDIA_TYPE_VIDEO);
+
+  std::error_code ignored;
+  std::filesystem::remove(output_path, ignored);
 }
 
 }  // namespace
