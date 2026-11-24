@@ -2,7 +2,7 @@
 
 面向 2GB Armbian 魔百盒的无状态视频分析方案。魔百盒处理手机有线流、运动过滤、目标检测和实时推流，RSS 目标小于 150 MB。联想 PC 提供多模态推理，并独立保存历史事件和未加 OSD 的 JPEG 抓拍。
 
-**当前状态（北京时间 2026-11-24）**：C++17 构建骨架、aarch64 交叉编译工具链、v0.1 核心框架、FFmpeg 采集模块与边缘 REST 控制面已落地（Issue #1–#5），v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）、NcnnDetectorNode（NCNN 目标检测与 NMS）与检测量化选型（fp32/fp16/int8）模块已实现，v0.3 的 JPEG／Base64 编码、GenAiWorker 异步投递与 EventTrackerNode 事件聚合也已实现，并统一接入 `src/main.cpp` 的端到端流水线与优雅退出。核心节点、有界队列、配置指标、RGB24 解码、EOF 循环、断线重连、截帧、remux 录片，以及 health、stats、config（含 PATCH 原子热更新）、source-switch、snapshot、stream 端点已实现；控制面已在本机回环验证，离线 CTest 覆盖核心、采集、控制面、帧差漏斗、检测后处理与选型、推流与 transport。推流输出已按 `config.streamer.mode` 装配：`mjpeg` 不启动外部进程，`rtsp` 时 StreamOutNode 对每帧生成独立 OSD 并以 RGB24 推入 RtspPusher 的 FFmpeg 管道；启动失败只告警，MJPEG 端点与流水线继续运行。事件聚合、GenAiWorker、PC 云存储（FastAPI + SQLite）、health 上游探活与 PATCH config 原子热更新已实现；部署脚本与模板已就绪。2026-11-24 已在魔百盒完成离线原生构建、systemd 部署与本地视频端到端验收（health、带 OSD 快照、MJPEG、PATCH、SIGTERM 优雅退出），盒到 PC 云存储的事件与图片投递也已验收；手机 IP Webcam 流（经 PC 中继）与 llama-server LLM 联动已验收；联想侧 MediaMTX + FFmpeg 本地 RTSP 模拟源及盒端取流已验收；盒端 RTSP 推流输出也已验收（H.264/yuv420p、15 FPS）；Fluent Bit 与日志采集仍待验收。
+**当前状态（北京时间 2026-11-24）**：C++17 构建骨架、aarch64 交叉编译工具链、v0.1 核心框架、FFmpeg 采集模块与边缘 REST 控制面已落地（Issue #1–#5），v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）、NcnnDetectorNode（NCNN 目标检测与 NMS）与检测量化选型（fp32/fp16/int8）模块已实现，v0.3 的 JPEG／Base64 编码、GenAiWorker 异步投递与 EventTrackerNode 事件聚合也已实现，并统一接入 `src/main.cpp` 的端到端流水线与优雅退出。核心节点、有界队列、配置指标、RGB24 解码、EOF 循环、断线重连、截帧、remux 录片，以及 health、stats、config（含 PATCH 原子热更新）、source-switch、snapshot、stream 端点已实现；控制面已在本机回环验证，离线 CTest 覆盖核心、采集、控制面、帧差漏斗、检测后处理与选型、推流与 transport。推流输出已按 `config.streamer.mode` 装配：`mjpeg` 不启动外部进程，`rtsp` 时 StreamOutNode 对每帧生成独立 OSD 并以 RGB24 推入 RtspPusher 的 FFmpeg 管道；启动失败只告警，MJPEG 端点与流水线继续运行。事件聚合、GenAiWorker、PC 云存储（FastAPI + SQLite）、health 上游探活与 PATCH config 原子热更新已实现；部署脚本与模板已就绪。2026-11-24 已在魔百盒完成离线原生构建、systemd 部署与本地视频端到端验收（health、带 OSD 快照、MJPEG、PATCH、SIGTERM 优雅退出），盒到 PC 云存储的事件与图片投递也已验收；手机 IP Webcam 流（经 PC 中继）与 llama-server LLM 联动已验收；联想侧 MediaMTX + FFmpeg 本地 RTSP 模拟源及盒端取流已验收；go2rtc ONVIF／RTSP 模拟源评估完成（仅模拟器 ONVIF 子集，边缘程序未实现 ONVIF 客户端）；盒端 RTSP 推流输出也已验收（H.264/yuv420p、15 FPS）；Fluent Bit 与日志采集仍待验收。
 
 ## 接力入口
 
@@ -43,6 +43,7 @@
 | 手机流 | 13.8 | 2.7 | 待实测 | 29.1 | 43.3 |
 | LLM 联动 | 14.9 | 14.1 | 待实测 | 27.9 | 46.9 |
 | RTSP 模拟源 | 14.1 | 0.1 | 待实测 | 25.1 | 39.6 |
+| go2rtc 模拟源 | 14.7 | 0.0 | 待实测 | 24.8 | 38.8 |
 | CAVIAR 真实视频 | 14.2 | 14.2 | 待实测 | 25.4 | 45.6 |
 | 盒端 RTSP 推流输出 | 14.6 | 0.0 | 待实测 | 27.9 | 43.9 |
 
@@ -56,7 +57,7 @@ cd edge-vision-analyzer
 git switch feature/capture
 ```
 
-在阅读冷启动文件并收到后续开发指令后，按 Issue 接续开发；v0.1–v0.3 与 v1.0 的主要模块已接入运行入口并在魔百盒完成本地视频与 PC 存储联动验收，手机流、LLM 联动、本地 RTSP 模拟源取流与盒端 RTSP 推流输出已验收；Fluent Bit 与日志采集仍待验收。预建任务见 [GitHub Issues](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues)，阶段归档见 [Milestones](https://github.com/nhh37740-glitch/edge-vision-analyzer/milestones)。
+在阅读冷启动文件并收到后续开发指令后，按 Issue 接续开发；v0.1–v0.3 与 v1.0 的主要模块已接入运行入口并在魔百盒完成本地视频与 PC 存储联动验收，手机流、LLM 联动、本地 RTSP 模拟源取流与盒端 RTSP 推流输出已验收，go2rtc ONVIF／RTSP 模拟源评估完成；Fluent Bit 与日志采集仍待验收。预建任务见 [GitHub Issues](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues)，阶段归档见 [Milestones](https://github.com/nhh37740-glitch/edge-vision-analyzer/milestones)。
 
 构建设计：联想 x86_64 Linux 支持本机离线测试构建，并交叉编译 aarch64 运行产物；魔百盒只运行，不编译大型依赖。根 [CMakeLists.txt](CMakeLists.txt) 已启用 C++17，当前可构建 `edge_core`、`edge_common`、`edge_capture`、`edge_detector`、`edge_streamer`、`edge_transport`、`edge_api`、`edge-vision-analyzer`、`test_build`、`test_core`、`test_capture`、`test_detector`、`test_streamer`、`test_transport` 与 `test_api`，其余静态库随里程碑加入。`cmake/aarch64-toolchain.cmake` 使用 `aarch64-linux-gnu-g++`。
 
@@ -87,7 +88,7 @@ bash scripts/start_pc_services.sh
 
 脚本把日志写入 `mktemp -d` 生成的临时目录，就绪时打印两个 PID 与日志路径；只有 `http://127.0.0.1:8080/health` 与 `http://127.0.0.1:8090/health` 都通过才报告就绪。缺少 `llama-server`、`uvicorn` 或 `curl` 时提示安装方式并返回非零。启动或探活失败时打印对应日志尾部，并提示用 `kill <PID>` 停止已启动的进程。脚本不下载模型、不读取 `config/config.local.json`，日志位于临时目录且不提交。
 
-## 本地 RTSP 相机模拟器
+## 本地相机模拟器
 
 手机 IP Webcam 会随锁屏停止监听，不能作为无人值守验收源。联想 PC 可用 [MediaMTX](https://github.com/bluenviron/mediamtx) v1.21.4 与 FFmpeg 提供确定性的 RTSP 源；MediaMTX 不含 ONVIF 发现或 Profile S，本次只验收 RTSP 取流。实测命令如下，素材与二进制不入库：
 
@@ -114,6 +115,49 @@ curl -s http://127.0.0.1:8081/api/v1/stats
 ```
 
 Windows 首次监听会弹防火墙确认；若盒端 TCP 8554 超时而 PC 本机回环可达，说明入站仍被拦截，需删除或禁用 `mediamtx.exe` 的阻止规则并放行 TCP 8554（9997 仅供 PC 本机查询 MediaMTX API），或临时经 PC TCP 中继转发。2026-11-24 实测中 MediaMTX 命中已有入站阻止规则；盒端 `input.source` 临时改为 `rtsp://10.10.10.1:18554/cam`，PC 上运行 `10.10.10.1:18554 → 127.0.0.1:8554` 的临时 TCP 转发后完成 60 秒验收。回环可达不能代替局域网验收。`GET /api/v1/stats` 实测 `capture_fps` 14.1、`dropped_frames` 0，快照 640×480、MJPEG 流头为 `multipart/x-mixed-replace`。与真实 IP 相机相比，该模拟源没有 ONVIF 发现、相机鉴权和相机端编码差异。
+
+### go2rtc（RTSP 与 ONVIF 子集）
+
+需要 ONVIF 控制面时，可用 [go2rtc](https://github.com/AlexxIT/go2rtc) v1.9.15（MIT，Windows 单文件 `go2rtc.exe`）；下载包二进制与素材不入库。它原生提供 RTSP 服务与 ONVIF Device／Media 子集，适合验证客户端接入流程；没有 WS-Discovery、PTZ 和相机鉴权，Profile 返回值也是固定桩，不能代表真实相机能力。ONVIF 是控制面，媒体仍由 RTSP 承载，两者必须分开验收。
+
+| 候选 | 许可证／平台 | 能力 | 结论 |
+| --- | --- | --- | --- |
+| go2rtc 1.9.15 | MIT／Windows 单文件 | RTSP + ONVIF Device／Media 子集 | 采用为 ONVIF 控制面与 RTSP 模拟源 |
+| MediaMTX 1.21.4 + FFmpeg | MediaMTX 为 MIT；FFmpeg 依构建为 LGPL-2.1+ 或 GPL（本机含 libx264，属 GPL）／Windows | RTSP／RTMP／HLS 等，无 ONVIF | 保留为纯 RTSP 基线与推流接收端 |
+| [onvif-vcam](https://github.com/ithouse98/onvif-vcam) | 公开源码但未标注许可证／Python | ONVIF Profile S／T、WS-Discovery、RTSP | 未实测：能力更完整，但依赖重且授权不明 |
+| ptzsim | MIT／Python 3.8+ | ONVIF（含 PTZ） | 未实测：需 Python 依赖，启动成本高于单文件 go2rtc |
+| Happytime ONVIF Server | 许可不明确（旧版 freeware，现版疑商业授权）／Windows | ONVIF Profile S／G／T | 未采用：闭源且授权不清 |
+
+前两项已完成真机实测；后三项只做资料核对，因依赖、许可证或可复现性未采用。
+
+以下配置把三个监听都限制在回环，避免 Windows 防火墙弹窗；启动后 Web UI、API 与 ONVIF 共用 `127.0.0.1:1984`。把 `<FFMPEG_EXE>` 与 `<VIDEO_FILE>` 换成本机路径。
+
+```yaml
+# go2rtc.local.yaml
+api:
+  listen: "127.0.0.1:1984"
+rtsp:
+  listen: "127.0.0.1:8554"
+webrtc:
+  listen: "127.0.0.1:8555"
+streams:
+  cam: 'exec:<FFMPEG_EXE> -re -stream_loop -1 -i <VIDEO_FILE> -r 15 -c:v libx264 -preset ultrafast -tune zerolatency -g 15 -pix_fmt yuv420p -f rtsp {output}'
+```
+
+```sh
+# 1. 启动；浏览器打开 http://127.0.0.1:1984/ 可看流状态
+go2rtc.exe -c go2rtc.local.yaml
+# 2. 媒体面：确认编码、分辨率与帧率
+ffprobe -rtsp_transport tcp -select_streams v:0 \
+  -show_entries stream=codec_name,width,height,pix_fmt,avg_frame_rate \
+  -of default=nw=1 rtsp://127.0.0.1:8554/cam
+# 3. ONVIF 控制面：设备信息；GetProfiles、GetStreamUri 同法发往设备或媒体服务
+curl -s -H 'Content-Type: application/soap+xml' \
+  --data '<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:tds="http://www.onvif.org/ver10/device/wsdl"><soap:Body><tds:GetDeviceInformation/></soap:Body></soap:Envelope>' \
+  http://127.0.0.1:1984/onvif/device_service
+```
+
+`ffmpeg:` 源加 `#input=file` 只按实时速度播放一遍，30 秒素材到点即结束；需要无人值守循环时改用上面的 `exec:` 并保留 `-stream_loop -1`。2026-11-24 用 CAVIAR 30 秒素材实测：PC 本机连续拉流 40 秒收到 601 帧；盒端经 `10.10.10.1:18554 → 127.0.0.1:8554` 中继完成 60 秒验收（14:55:08–14:56:08），采集 14.7 FPS、检测 0.0 FPS、丢帧 0、RSS 24.8 MB、CPU 12.8%（单核百分比）、SoC 38.8 °C，快照 36,375 字节／640×480，MJPEG 3 秒 1,659,454 字节／46 帧。ONVIF 侧以原生 SOAP 核验 `GetSystemDateAndTime`、`GetCapabilities`、`GetProfiles`、`GetStreamUri`、`GetSnapshotUri` 与 `GetDeviceInformation` 均返回 200，`GetSnapshotUri` 指向的 640×480 JPEG 可读取；`GetProfiles` 固定报告 1920×1080@30 Main，而实际流为 640×480@15，PTZ 请求返回 400，UDP 3702 无响应。盒端仍只以 RTSP 取流，边缘程序不含 ONVIF 客户端；不能把本次结果写成程序已支持 ONVIF。
 
 ### 公开真实视频源
 
