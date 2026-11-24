@@ -83,6 +83,14 @@
 - 根因：离线原生构建只编入运行库，目标机又无外网与 apt，无法临时安装 CLI。
 - 解决命令：联想下载 johnvansickle `ffmpeg-7.0.2-arm64-static`（含 libx264 与 RTSP muxer），scp 到 `/usr/local/bin/ffmpeg` 并 `chmod 0755`；`ffmpeg -version`、`-encoders`、`-muxers` 核验后推流成功。
 
+- 现象与命令：2026-11-24 联想 MSYS2 Python 3.14 执行 `pip install -r cloud-storage/requirements.txt` 时，`pydantic-core` 构建失败。
+- 根因：解释器使用 `mingw_x86_64_ucrt_gnu` 平台标签，不能使用 PyPI 的 Windows wheel。
+- 解决命令：用 pacman 安装 UCRT64 的 python-fastapi、uvicorn、python-pytest 与 python-httpx；本机离线测试 5 passed。实测 FastAPI 0.165.0／pydantic 2.14.4／uvicorn 0.54.0 高于仓库锁定版本，不能替代锁定依赖的 CI 验证。
+
+- 现象与命令：2026-11-24 安装 volatile journal 后，`systemd-analyze cat-config systemd/journald.conf` 仍显示发行版 `syslog.conf` 启用 `ForwardToSyslog=yes`；rsyslog active，另写 `/var/log/syslog`。
+- 根因：volatile 只约束 journal 自身存储，不关闭 syslog 转发；Armbian 的 zram `/var/log` 还有 ramlog，不能据此认定不持久化。
+- 解决命令：经明确授权，将 `ForwardToSyslog=no` 配置安装为排序靠后的 `/etc/systemd/journald.conf.d/zz-edge-vision.conf`，重启 journald；重启 edge 后 PC 收到新日志，syslog 新增区间内 edge 启动日志为 0。
+
 ## 常驻提示（PATCH-009）
 
 ### 魔百盒热管理

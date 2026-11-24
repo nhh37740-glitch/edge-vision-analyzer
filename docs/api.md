@@ -1,8 +1,8 @@
 # Edge Vision Analyzer — 双服务 API 契约
 
-状态：有效设计契约；`v0.1-oculus` 的 health、stats、config 读取与 source-switch，`v0.2-discern` 的 PATCH config 原子热更新，`v1.0-vox` 的 snapshot 与 stream，以及 `v0.3-nous` 的云存储 health/events/images/logs 均已实现。边缘端点已在本机回环与离线用例验证，云存储由离线 pytest 覆盖；2026-11-24 已在魔百盒完成 health/stats/config/snapshot/stream/PATCH/source-switch 的本地视频真机验收，并验证盒到 PC 存储的 health、事件投递与图片读取；手机流、LLM 联动与本地 RTSP 模拟源取流已验收；盒端 RTSP 推流输出已验收；日志采集仍待验收。维护责任：项目维护 Agent。更新日期：2026-11-24（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
+状态：有效设计契约；`v0.1-oculus` 的 health、stats、config 读取与 source-switch，`v0.2-discern` 的 PATCH config 原子热更新，`v1.0-vox` 的 snapshot 与 stream，以及 `v0.3-nous` 的云存储 health/events/images/logs 均已实现。边缘端点已在本机回环与离线用例验证，云存储由离线 pytest 覆盖；2026-11-24 已在魔百盒完成 health/stats/config/snapshot/stream/PATCH/source-switch 的本地视频真机验收，并验证盒到 PC 存储的 health、事件投递与图片读取；手机流、LLM 联动与本地 RTSP 模拟源取流已验收；盒端 RTSP 推流输出已验收；Fluent Bit／journald 基础日志链路已验收，整机重启与长时间运行尚未验证。维护责任：项目维护 Agent。更新日期：2026-11-24（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
 
-本轮宣称上表所列端点在魔百盒本地视频与手机流工况的验收，以及盒到 PC 存储的事件、图片与 LLM 摘要投递；本地 MediaMTX + FFmpeg 模拟源 RTSP 取流已验证，盒端 RTSP 推流输出已验收；Fluent Bit 未验收。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
+本轮宣称上表所列端点在魔百盒本地视频与手机流工况的验收，以及盒到 PC 存储的事件、图片与 LLM 摘要投递；本地 MediaMTX + FFmpeg 模拟源 RTSP 取流已验证，盒端 RTSP 推流输出已验收；Fluent Bit／journald 基础日志链路已验收，整机重启与长时间运行尚未验证。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
 
 ## 1. 两个服务的地址与职责
 
@@ -306,7 +306,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 {"date":"2026-11-23T05:33:20.123Z","MESSAGE":"采集节点已启动","_SYSTEMD_UNIT":"edge-vision.service"}
 ```
 
-文件不存在返回 404 和统一 Error；日期/条数非法返回 400，读取失败返回 500。服务端仅从 `cloud-storage/storage/logs/` 下按已校验日期拼接文件名，不接受调用方路径或返回物理路径。本接口与 POST 均只在交换机局域网内使用，由 PC `:8090` 独立提供，魔百盒 `:8081` 不新增日志 API。
+文件不存在返回 404 和统一 Error；日期/条数非法返回 400，读取失败返回 500。服务端仅从 `cloud-storage/storage/logs/` 下按已校验日期拼接文件名，不接受调用方路径或返回物理路径。本接口与 POST 均只在交换机局域网内使用，由 PC `:8090` 独立提供，魔百盒 `:8081` 不新增日志 API。PC 本地 5 个离线用例通过及依赖版本差异见 [roadmap 第 4.3 节](roadmap.md)；Fluent Bit／journald 的安装、回退和真实链路复验见 [architecture 第 10.1 节](architecture.md#101-部署配置与一次性离线安装)；2026-11-24 基础链路已在目标机验收，整机重启与长时间运行未验证。
 
 ## 6. 上游 llama-server（外部依赖）与异步投递
 
