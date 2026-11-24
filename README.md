@@ -8,9 +8,9 @@
 
 [打开云存储查询演示](https://github.com/nhh37740-glitch/edge-vision-analyzer/discussions/156)，查看干净 JPEG、检测框、中文摘要、完整 JSON 与查询命令。
 
-![公开 CAVIAR 走廊画面上的实际检测框：person 0.661](https://raw.githubusercontent.com/nhh37740-glitch/edge-vision-analyzer/5a21fe375c2a2ecb7e5debaa871d9d3275d7ecd3/docs/examples/cloud-storage/annotated.png)
+![公开 CAVIAR 走廊画面上的实际检测框：person 0.661](https://github.com/nhh37740-glitch/edge-vision-analyzer/blob/main/docs/examples/cloud-storage/annotated.png?raw=true)
 
-这是 PC 对公开 CAVIAR 视频单帧检测后显式投递、再从云存储查询的演示。检测只返回一个框，模型摘要也存在未由单帧证实的描述；完整方法与限制见演示帖。示例文档由 [PR #155](https://github.com/nhh37740-glitch/edge-vision-analyzer/pull/155) 跟踪，尚未合并。
+这是 PC 对公开 CAVIAR 视频单帧检测后显式投递、再从云存储查询的演示。检测只返回一个框，模型摘要也存在未由单帧证实的描述；完整方法与限制见演示帖和[示例文档](docs/examples/cloud-storage/README.md)。
 
 图像来源：**EC Funded CAVIAR project/IST 2001 37540**，[数据集来源页](http://homepages.inf.ed.ac.uk/rbf/CAVIAR/)，序列 `OneStopEnter1cor`。来源页标注 **CC BY-SA**，未注明版本；图片经过抽帧、缩放、编码和检测框标注，图像及其衍生版本沿用原许可。
 
