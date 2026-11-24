@@ -21,8 +21,8 @@
 | 有界队列与满时丢最旧 | A | `src/core/bounded_queue.hpp`、提交 `3f9c45d`／`f4a7a5c` | 用有界队列隔离采集、检测与推流，10 分钟丢帧 0 |
 | systemd 托管＋cgroup v2 `MemoryMax=300M`＋journal | A | `deploy/edge-vision.service`、[benchmarks](benchmarks.md) 参数表；`stat -fc %T /sys/fs/cgroup` 为 `cgroup2fs` | 用 systemd 托管服务并在 cgroup v2 设置内存上限；SIGTERM 约 1 秒退出 |
 | 热管理（仅观测） | C | [踩坑记录](troubleshooting.md) 魔百盒热管理、[API](api.md) `soc_temp_c` | 写“记录 SoC 温度并识别无风扇热降频限制”，不写“温控调度” |
-| journald volatile 模板 | C | `deploy/journald-edge.conf` 模板未安装 | 不写“已配置 journald 限额” |
-| Fluent Bit／journald 采集 | B | `deploy/fluent-bit.conf`、`deploy/journald-edge.conf`；PC `/api/v1/logs` 已实现并有离线测试；盒端未安装 | 写“日志采集模板与接收端已实现”，不写“已上线” |
+| journald volatile 配置 | A | `deploy/journald-edge.conf`；2026-11-24 实机生效 `Storage=volatile`、`RuntimeMaxUse=20M`、`ForwardToSyslog=no`；[benchmarks](benchmarks.md) | 配置运行时 journal、归档文件限容并关闭向 syslog 转发；整机重启未验证 |
+| Fluent Bit／journald 采集 | A | Fluent Bit 5.2.0 与 `deploy/fluent-bit.conf`、`deploy/fluent-bit-limits.conf`；2026-11-24 基础链路、过滤与模拟投递失败后恢复通过；[benchmarks](benchmarks.md) | 用独立采集器将服务 journal 转发 PC 并查询 NDJSON；有限重试可丢日志，长时间运行未验证 |
 | aarch64 交叉编译与 Release | B | `cmake/aarch64-toolchain.cmake`、`.github/workflows/release.yml`；尚无 Release，盒端为离线原生构建 | 写“已配置交叉编译工作流”，不写“已发版” |
 | 静态 FFmpeg CLI 推流 | A | `/usr/local/bin/ffmpeg` 7.0.2-static；提交 `4eac7a5` | 用静态 FFmpeg 将 OSD 帧编码为 H.264／yuv420p 并推 RTSP |
 | RTSP 取流／推流＋MediaMTX | A | 提交 `dcd7534`、`4eac7a5`；约 15 FPS | 搭建 MediaMTX＋FFmpeg 可重复源，完成盒端 RTSP 输入与输出验收 |
@@ -43,7 +43,7 @@
 - 搭建 MediaMTX＋FFmpeg 可重复 RTSP 源与接收端，完成盒端 H.264／yuv420p／约 15 FPS 推流；另以 go2rtc 完成 ONVIF 模拟器控制面子集联调。
 - 边缘事件异步投递至 FastAPI＋SQLite，并由 PC 侧 llama.cpp Qwen2-VL-2B 生成描述；视觉 token 调优把单次描述从 59.4 s 降到 8.45 s。
 
-> ONVIF、交叉编译发版与 Fluent Bit 日志采集不能写成“已掌握”；分别按 C、B、B 档表述。
+> ONVIF 与交叉编译发版分别按 C、B 档表述；Fluent Bit／journald 基础链路已到 A 档，不宣称无损补传、整机重启恢复或长期稳定性。
 
 ## 4. 扩展候选
 
@@ -52,7 +52,6 @@
 | systemd watchdog＋`sd_notify` | 发现拉流线程假死并自动重启 | 小／中：心跳必须绑定最近成功取帧，否则上游断流会误重启 | `Type=notify`、`WatchdogSec`；`kill -STOP` 模拟卡死后服务在阈值内重启并恢复取流 |
 | 零依赖 Prometheus `/metrics` | 复用现有指标做可观测性 | 小／低：新增文本 exposition，不引入客户端库 | 输出 Prometheus 0.0.4 文本；PC 抓取后 Grafana 建采集／检测 FPS、RSS／温度、丢帧／LLM 时延 3 个面板 |
 | MQTT 告警（Mosquitto） | 事件推送到局域网订阅端 | 中／中：QoS1 与 LWT 需处理重连；边缘无磁盘队列，必须定义丢弃策略 | 断网重连不阻塞流水线；broker 恢复后收到告警；内存与丢帧保持有界 |
-| Fluent Bit 日志链路 | 补齐 journald→PC 结构化日志 | 小／中：目标机无外网，需离线安装并验证权限 | 日志在 PC `/api/v1/logs` 可查询，断连重试不丢服务 |
 | systemd 沙箱加固 | 降低服务权限面 | 小／低：需逐项验证设备与文件访问 | `systemd-analyze security` 评分改善，采集、快照、推流仍正常 |
 
 ## 5. 排除项

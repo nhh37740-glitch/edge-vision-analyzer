@@ -1,6 +1,6 @@
 # Edge Vision Analyzer 架构
 
-状态：有效设计契约；v0.1 核心框架、采集模块与控制面（health、stats、config 读取与 PATCH 原子热更新、source-switch）已实现，v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）与 NcnnDetectorNode（NCNN 目标检测与 NMS）模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现；以上模块已由 `src/main.cpp` 接入端到端运行入口。PC 云存储服务（FastAPI + SQLite）与 LLM/Storage 上游探活已实现，部署脚本与模板已就绪，PATCH config 原子热更新已实现；2026-11-24 已在魔百盒完成本地视频真机部署验收、盒到 PC 存储投递、手机流与 LLM 联动；本地 MediaMTX + FFmpeg RTSP 模拟源取流已验收；go2rtc ONVIF／RTSP 模拟源评估完成（ONVIF 仅为模拟器控制面子集，边缘程序仍只走 RTSP）；盒端 RTSP 推流输出已验收；Fluent Bit 仍待验收。维护：项目接力 Agent；日期：2026-11-24（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集及 PC 日志落盘／查询，PATCH-009 补充部署对时与温度观测。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
+状态：有效设计契约；v0.1 核心框架、采集模块与控制面（health、stats、config 读取与 PATCH 原子热更新、source-switch）已实现，v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）与 NcnnDetectorNode（NCNN 目标检测与 NMS）模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现；以上模块已由 `src/main.cpp` 接入端到端运行入口。PC 云存储服务（FastAPI + SQLite）与 LLM/Storage 上游探活已实现，部署脚本与模板已就绪，PATCH config 原子热更新已实现；2026-11-24 已在魔百盒完成本地视频真机部署验收、盒到 PC 存储投递、手机流与 LLM 联动；本地 MediaMTX + FFmpeg RTSP 模拟源取流已验收；go2rtc ONVIF／RTSP 模拟源评估完成（ONVIF 仅为模拟器控制面子集，边缘程序仍只走 RTSP）；盒端 RTSP 推流输出已验收；Fluent Bit／journald 基础日志链路已验收，整机重启与长时间运行尚未验证。维护：项目接力 Agent；日期：2026-11-24（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集及 PC 日志落盘／查询，PATCH-009 补充部署对时与温度观测。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
 
 ## 1. 物理拓扑与三个服务入口
 
@@ -126,7 +126,7 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 
 实时 MJPEG 仍只在观看或快照请求时编码，无请求时不编码；可选 RTSP 使用 `-preset ultrafast -tune zerolatency -b:v 500k`。Nous 的事件 JPEG 编码与实时 OSD 输出编码用途不同，不把两者混用。`src/main.cpp` 按 `config.streamer.mode` 装配输出：`mjpeg` 模式不创建推流子进程，保持按需 JPEG；`rtsp` 模式把可选 `RtspPusher` 注入 `StreamOutNode`，节点逐帧在独立缓冲生成 OSD，以 RGB24 投递有界写队列，共享采集帧保持只读。推流器启动失败（例如找不到 `ffmpeg`）只打印告警，流水线与 MJPEG 端点继续可用，不因此退出进程；停止时先停节点再回收推流进程，避免节点线程卡在编码器上。RTSP 地址、宽高与帧率分别取自 `config.streamer.rtsp_url` 和 `config.input`；本地 MediaMTX + FFmpeg 模拟源取流已验收，盒端 RTSP 推流输出也已验收。推流命令已对 rawvideo 输入指定 `-pix_fmt rgb24`，并对输出指定 `-pix_fmt yuv420p`、`-f rtsp` 与 `-rtsp_transport tcp`；盒端使用静态 FFmpeg 7.0.2 经 PC 中继推至 MediaMTX `/edge`，PC 拉流为 640×480、`yuv420p`、约 15 FPS。后续验收需包含关闭上游／超时降级、队列丢旧与释放、优雅退出及 RSS **<150MB**；魔百盒空载验收实测 RSS 28.4MB、SIGTERM 约 1 秒退出、10 分钟丢帧 0，指标以实测记录为准。
 
-初始化和核心框架已交付：`edge_core` 的节点、队列与源分类，以及 `edge_common` 的配置和指标已实现并有本地离线测试。`edge_capture` 的 FFmpeg 拉流、RGB24 解码、EOF 循环、断线重连、截帧和仅视频 remux 录片，以及 `edge_api` 的实时控制端点和运行入口也已实现；`test_capture` 覆盖本地解码、循环与非法源，`test_api` 用伪 `SourceControl` 覆盖健康探针与切源。`edge_detector` 的 MotionNode／NcnnDetectorNode、`edge_streamer` 的 OSD／RTSP 与 `edge_transport` 的 JPEG／Base64、`GenAiWorker` 及 `EventTrackerNode` 已实现并由 `src/main.cpp` 装配为 CaptureNode → MotionNode → NcnnDetectorNode → EventTrackerNode → StreamOutNode 的端到端流水线，API 已接入快照与 MJPEG 回调，推流器已按 `config.streamer` 装配为 MJPEG／RTSP 双模并接入优雅退出；PC 存储服务已实现，部署脚本与模板已就绪；魔百盒本地视频、手机流（经 PC 中继）与 LLM 联动的真机验收已完成，本地 MediaMTX 模拟源取流也已验收；go2rtc ONVIF／RTSP 模拟源评估完成，但边缘程序仍只以 RTSP 取流、不含 ONVIF 客户端；盒端 RTSP 推流输出已验收；日志采集仍待验收。后续变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；静态检查和工作流定义不等于业务构建或运行验收。
+初始化和核心框架已交付：`edge_core` 的节点、队列与源分类，以及 `edge_common` 的配置和指标已实现并有本地离线测试。`edge_capture` 的 FFmpeg 拉流、RGB24 解码、EOF 循环、断线重连、截帧和仅视频 remux 录片，以及 `edge_api` 的实时控制端点和运行入口也已实现；`test_capture` 覆盖本地解码、循环与非法源，`test_api` 用伪 `SourceControl` 覆盖健康探针与切源。`edge_detector` 的 MotionNode／NcnnDetectorNode、`edge_streamer` 的 OSD／RTSP 与 `edge_transport` 的 JPEG／Base64、`GenAiWorker` 及 `EventTrackerNode` 已实现并由 `src/main.cpp` 装配为 CaptureNode → MotionNode → NcnnDetectorNode → EventTrackerNode → StreamOutNode 的端到端流水线，API 已接入快照与 MJPEG 回调，推流器已按 `config.streamer` 装配为 MJPEG／RTSP 双模并接入优雅退出；PC 存储服务已实现，部署脚本与模板已就绪；魔百盒本地视频、手机流（经 PC 中继）与 LLM 联动的真机验收已完成，本地 MediaMTX 模拟源取流也已验收；go2rtc ONVIF／RTSP 模拟源评估完成，但边缘程序仍只以 RTSP 取流、不含 ONVIF 客户端；盒端 RTSP 推流输出已验收；Fluent Bit／journald 基础日志链路已验收，整机重启与长时间运行尚未验证。后续变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；静态检查和工作流定义不等于业务构建或运行验收。
 
 ## 8. 模块构建与链接边界（PATCH-005）
 
@@ -164,9 +164,9 @@ FFmpeg 原生拥有型资源统一用 `std::unique_ptr<T, 自定义 deleter>` �
 
 `av_frame_unref`／`av_packet_unref` 释放当前引用的数据缓冲，不替代对象最终 free；也不能在其他处理步骤仍需该数据时提前 unref。其他三类管理对象按自身会话生命周期释放，不把“处理后立即释放”误写为每帧重建所有上下文。RGB `FrameMeta` 与任务图像的独立所有权、节点有界队列仍遵守前文约束。
 
-应用日志只写 stdout／stderr，不在魔百盒创建业务日志文件，不加入定时删除日志、帧或缓存的外部清理脚本。服务模板 [edge-vision.service](../deploy/edge-vision.service) 将标准输出与错误交给 journal，内存存储与独立采集器按第 10 节部署契约接力；模板未安装，当前不声称目标机已运行或日志已接管。
+应用日志只写 stdout／stderr，不在魔百盒创建业务日志文件，不加入定时删除日志、帧或缓存的外部清理脚本。服务模板 [edge-vision.service](../deploy/edge-vision.service) 将标准输出与错误交给 journal，该单元已于 2026-11-24 安装并在目标机运行，stdout／stderr 已由 journal 接管；内存日志限容与独立采集器的安装和验收状态见第 10 节。
 
-该模板采用工作目录 `/opt/edge-vision-analyzer`，启动命令为 `bin/edge-vision-analyzer --config /opt/edge-vision-analyzer/config/config.local.json`；`src/main.cpp` 已实现 `--config`，并支持阶段 A 的 `--record-clip` 与 `--duration`，启动时按配置装配采集、帧差、检测、事件聚合、异步投递与流输出节点，注册 `SIGINT`／`SIGTERM` 后按上游到下游顺序停止。模板尚未安装到目标机；安装文件并准备本地配置后，才在获准部署阶段启用服务。
+该模板采用工作目录 `/opt/edge-vision-analyzer`，启动命令为 `bin/edge-vision-analyzer --config /opt/edge-vision-analyzer/config/config.local.json`；`src/main.cpp` 已实现 `--config`，并支持阶段 A 的 `--record-clip` 与 `--duration`，启动时按配置装配采集、帧差、检测、事件聚合、异步投递与流输出节点，注册 `SIGINT`／`SIGTERM` 后按上游到下游顺序停止。目标机已使用该单元和本地配置完成部署，health、快照、MJPEG 与优雅退出结果见 [实测台账](benchmarks.md)。
 
 [`MemoryMax=300M`](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html) 是服务 cgroup 的 300 MiB 内存限制，无法在限制内回收时可能触发单元内 OOM 终止；它与业务目标 **RSS <150MB** 使用不同口径，不能替代业务内存优化或声称已经达到目标。[`Restart=always`](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html) 负责进程退出后的自动重启，仍受启动频率限制，显式停止服务时不会自动复起；它不是内存回收算法。RAII、有界队列、任务及时释放与 systemd 最后防线分别验收，不用杀进程或清理脚本代替资源管理。
 
@@ -178,7 +178,7 @@ FFmpeg 原生拥有型资源统一用 `std::unique_ptr<T, 自定义 deleter>` �
         │ StandardOutput=journal / StandardError=journal
         ▼
 systemd-journald（默认 namespace）
-    Storage=volatile；RuntimeMaxUse=20M，按归档文件回收
+    Storage=volatile；RuntimeMaxUse=20M；ForwardToSyslog=no
         │ _SYSTEMD_UNIT=edge-vision.service
         ▼
 独立 Fluent Bit systemd input
@@ -192,13 +192,63 @@ systemd-journald（默认 namespace）
 
 日志采集独立于视频节点和 Nous 事件任务，不由 C++ 自写 HTTP 日志客户端、异步线程或本地轮转文件。Fluent Bit 只读取服务 `_SYSTEMD_UNIT=edge-vision.service` 的 journal 记录，不采集整机日志；记录保留 journal 的消息和结构化字段，HTTP `Format json` 以 JSON 数组批量发送。输入过滤方式以 [Systemd input 官方文档](https://docs.fluentbit.io/manual/data-pipeline/inputs/systemd) 为准，发送格式见 [HTTP output 官方文档](https://docs.fluentbit.io/manual/data-pipeline/outputs/http)。
 
-### 10.1 仅部署模板，尚未启用
+### 10.1 部署配置与一次性离线安装
 
-- [journald-edge.conf](../deploy/journald-edge.conf) 是未来默认 journal 的 drop-in 模板，安装目标为 `/etc/systemd/journald.conf.d/edge-vision.conf`。`[Journal] Storage=volatile` 使 journal 保存在 `/run/log/journal`，重启不保留；`RuntimeMaxUse=20M` 按 journal 文件空间回收，只删除归档文件，活跃文件及轮转粒度可能使实际占用超过 20M，不能称为严格的实时 20MB 硬限。该配置影响整机默认 namespace，不仅是 edge 服务；不用外部清理脚本补偿。[journald 官方语义](https://www.freedesktop.org/software/systemd/man/latest/journald.conf.html)
+- [journald-edge.conf](../deploy/journald-edge.conf) 是默认 journal 的 drop-in 模板，安装目标为 `/etc/systemd/journald.conf.d/zz-edge-vision.conf`。`[Journal] Storage=volatile` 使 journal 保存在 `/run/log/journal`，重启不保留；`RuntimeMaxUse=20M` 按 journal 文件空间回收，只删除归档文件，活跃文件及轮转粒度可能使实际占用超过 20M，不能称为严格的实时 20MB 硬限。`ForwardToSyslog=no` 关闭 journal 向 syslog 的转发；`zz-edge-vision.conf` 按文件名排序晚于发行版 `/usr/lib/systemd/journald.conf.d/syslog.conf`，覆盖其设置。该配置影响整机默认 namespace 的全部 journal 转发，不仅是 edge 服务。当前 Armbian 的 rsyslog 仍 active，`/var/log` 使用 zram，ramlog 已启用；关闭转发不等于停用这些组件，也不能单凭 zram 推断日志不会被同步到持久存储。实际输出链路仍需复验，不用外部清理脚本补偿。[journald 官方语义](https://www.freedesktop.org/software/systemd/man/latest/journald.conf.html)
 - [fluent-bit.conf](../deploy/fluent-bit.conf) 是魔百盒上独立采集进程的配置模板；`Systemd_Filter _SYSTEMD_UNIT=edge-vision.service`、`Read_From_Tail On`、`Mem_Buf_Limit 2MB`、`storage.type memory`。不配置游标 SQLite DB、文件系统缓冲、磁盘积压或拒绝数据落盘。2MB 限制的是输入缓冲阈值，达到阈值后暂停该输入；单次写入可越过阈值，不能当作 Fluent Bit 总 RSS 保证。[内存缓冲](https://docs.fluentbit.io/manual/administration/buffering-and-storage)、[背压行为](https://docs.fluentbit.io/manual/administration/backpressure)
-- HTTP 输出使用示例 LAN 主机 `192.168.10.10`、端口 `8090`、URI `/api/v1/logs`、`Format json` 和 `Retry_Limit 1`。最多重试一次，耗尽后丢弃该批次；这是日志传输的有限重试，与 Nous 事件投递不重试的契约分开。重试可能带来重复日志，轮转、采集器重启或网络故障可能丢日志，不承诺必达或精确一次。[重试官方语义](https://docs.fluentbit.io/manual/administration/scheduling-and-retries)
+- HTTP 输出使用局域网主机 `10.10.10.1`（其他现场需替换）、端口 `8090`、URI `/api/v1/logs`、`Format json` 和 `Retry_Limit 1`。最多重试一次，耗尽后丢弃该批次；这是日志传输的有限重试，与 Nous 事件投递不重试的契约分开。重试可能带来重复日志，轮转、采集器重启或网络故障可能丢日志，不承诺必达或精确一次。[重试官方语义](https://docs.fluentbit.io/manual/administration/scheduling-and-retries)
 
-三个部署模板中，`edge-vision.service` 已于 2026-11-24 安装并在魔百盒运行；`journald-edge.conf` 与 `fluent-bit.conf` 仍未安装或运行。后续验证日志采集时核对 Armbian 的 systemd／cgroup、journal 读取权限、Fluent Bit 构建包含 systemd input，以及 PC 接收端实现；再验证日志只保留于边缘内存并能投递 PC。不能以模板静态核对代替目标机运行验证，也不把输入缓冲阈值当作任何进程的实测内存指标。
+2026-11-24 基础日志链路已在魔百盒验收：Fluent Bit 5.2.0 配置 dry-run 通过，服务 active 且 enabled；systemd input 使用内存缓冲，journal 生效值为 `Storage=volatile`、`RuntimeMaxUse=20M`、`ForwardToSyslog=no`。PC POST 返回 204，GET 返回 200／`application/x-ndjson`；抽取 6 条真实 journal 记录，均包含 `MESSAGE` 与 `_SYSTEMD_UNIT=edge-vision.service`，非 edge 记录和独立 logger 探针均为 0，先前手工 API 探针不计入该样本。重启采集器后再重启 edge，后续日志投递仍返回 204；关闭 journal 转发后，新一次 edge 启动记录在同一 inode 的 syslog 新增字节中匹配 0。
+
+投递失败测试临时把采集器目标改为已确认未监听的 `127.0.0.1:1`，PC 接收服务保持运行；这是关闭端口的故障注入，不是实际断网。20 秒内采集器保持 active、未重启，观察到 flush 失败、11 秒后重试及耗尽后丢弃；随后恢复配置并重启采集器，再重启 edge 产生的新日志投递成功。不承诺失败批次补传或无损；整机重启与长时间运行尚未验证。采样口径、资源数据和边界见 [实测台账](benchmarks.md)，不把输入缓冲阈值或 cgroup 限额当成实测 RSS。
+
+#### 安装与回退步骤
+
+以下命令用于复现首次部署；本次安装与基础验收已完成，复验时需按现场已有配置调整。一次性日志安装独立于 `scripts/deploy_to_box.sh` 的应用发包流程。先在 PC 启动 `cloud-storage`，确认目标机能访问 `http://10.10.10.1:8090/health`；安装前完成对时。离线包适用于 Ubuntu noble／arm64：PC 从 [Fluent Bit 软件源](https://packages.fluentbit.io/ubuntu/noble/pool/main/f/fluent-bit/fluent-bit_5.2.0_arm64.deb) 下载 `fluent-bit_5.2.0_arm64.deb`，从 [Ubuntu ports](https://ports.ubuntu.com/ubuntu-ports/pool/main/p/postgresql-16/libpq5_16.15-0ubuntu0.24.04.1_arm64.deb) 下载 `libpq5_16.15-0ubuntu0.24.04.1_arm64.deb`；连同仓库三个日志模板传至目标机 `/tmp/edge-logging/`。不把安装包或现场配置提交仓库。
+
+在目标机以 root 执行；以下按首次安装、两个 drop-in 目标文件原先不存在编写。已有 Fluent Bit 或同名配置时先备份并合并，回退时恢复原文件。包管理器报告其他缺失依赖时在 PC 补齐对应 noble／arm64 包，不强制忽略依赖。
+
+```sh
+cd /tmp/edge-logging
+dpkg -i libpq5_16.15-0ubuntu0.24.04.1_arm64.deb fluent-bit_5.2.0_arm64.deb
+systemctl stop fluent-bit
+cp -a /etc/fluent-bit/fluent-bit.conf /etc/fluent-bit/fluent-bit.conf.pre-edge
+install -d /etc/systemd/journald.conf.d /etc/systemd/system/fluent-bit.service.d
+install -m 0644 journald-edge.conf /etc/systemd/journald.conf.d/zz-edge-vision.conf
+install -m 0644 fluent-bit.conf /etc/fluent-bit/fluent-bit.conf
+install -m 0644 fluent-bit-limits.conf /etc/systemd/system/fluent-bit.service.d/limits.conf
+/opt/fluent-bit/bin/fluent-bit --dry-run -c /etc/fluent-bit/fluent-bit.conf
+# 仅在 dry-run 成功后启用；Host 按当前 PC 地址设置。
+systemctl daemon-reload
+systemctl restart systemd-journald
+systemctl enable --now fluent-bit
+systemctl restart edge-vision
+```
+
+[fluent-bit-limits.conf](../deploy/fluent-bit-limits.conf) 设置 `MemoryAccounting=yes`、`MemoryMax=96M`、`Restart=always`、`RestartSec=2`。96 MiB 是采集器 cgroup 上限，2MB 是输入缓冲阈值；两者均不等于实测 RSS。安装后在目标机核对：
+
+```sh
+/opt/fluent-bit/bin/fluent-bit --version
+systemctl is-active fluent-bit
+systemd-analyze cat-config systemd/journald.conf
+systemctl show fluent-bit -p MemoryCurrent -p MemoryMax -p MainPID
+journalctl --disk-usage
+journalctl -u fluent-bit -n 20 --no-pager
+logger -t edge-logging-filter-probe 'edge-logging-filter-probe'
+```
+
+PC 读取 `curl -i "http://127.0.0.1:8090/api/v1/logs?date=$(date -u +%F)&tail=1000"`，确认 200、`application/x-ndjson`，新记录含 `MESSAGE`、`_SYSTEMD_UNIT=edge-vision.service`，上述非 edge 探针匹配 0。分别记录采集器 `MemoryCurrent` 和 `/proc/<MainPID>/status` 的 `VmRSS`；Issue #145 验收要求前者小于 96 MiB、journal 占用不超过 30 MiB，不能把配置限额填作测量值。复现投递失败时，先备份采集器配置，临时将 HTTP Host／Port 改为 `127.0.0.1`／`1`（用 `ss` 确认未监听），重启采集器及 edge 后记录服务状态、资源和重试／丢弃日志；结束时恢复原配置并重启采集器及 edge，确认后续日志到达。实际网络中断、整机重启及长时间运行仍需另行验证。无游标 DB、`Read_From_Tail On` 和有限重试意味着断连或重启期间可丢日志，“恢复”只承诺后续新日志转发，不是历史批次补传。真实结果写入 [实测台账](benchmarks.md) 后再更新验收状态。
+
+首次安装的回退命令如下，停止采集、恢复包默认配置并撤销本次两个 drop-in；移除 `zz-edge-vision.conf` 后，journal 设置恢复其余主配置与 drop-in 的合并结果，包括发行版的 syslog 转发设置。回退不会清空既有 journal 或 PC 日志。已有配置的现场应恢复对应备份，而非删除原有文件。
+
+```sh
+systemctl disable --now fluent-bit
+mv /etc/fluent-bit/fluent-bit.conf.pre-edge /etc/fluent-bit/fluent-bit.conf
+rm /etc/systemd/journald.conf.d/zz-edge-vision.conf
+rm /etc/systemd/system/fluent-bit.service.d/limits.conf
+systemctl daemon-reload
+systemctl restart systemd-journald
+```
 
 ### 10.2 PC 接收、存储与查询
 

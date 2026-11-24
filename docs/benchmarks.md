@@ -1,8 +1,8 @@
 # 实测基线与优化收益
 
-本文件记录已核验的魔百盒、联想 PC、手机源、本地 RTSP 模拟源、go2rtc ONVIF／RTSP 模拟源、CAVIAR 公开真实视频与盒端 RTSP 推流输出结果；Fluent Bit 仍未采样，保持 **待实测**。记录触发条件以 [AGENTS.md](../AGENTS.md) 为准，项目入口见 [README](../README.md)，指标字段与单位见 [API 契约](api.md)。设计目标、示例配置、硬件称呼和接口示例都不能代替实测；所有尚未实测或核验的值统一写为 **待实测**。
+本文件记录已核验的魔百盒、联想 PC、手机源、本地 RTSP 模拟源、go2rtc ONVIF／RTSP 模拟源、CAVIAR 公开真实视频、盒端 RTSP 推流输出与 Fluent Bit／journald→PC 日志链路结果；整机重启恢复和长期日志压力仍 **待实测**。记录触发条件以 [AGENTS.md](../AGENTS.md) 为准，项目入口见 [README](../README.md)，指标字段与单位见 [API 契约](api.md)。设计目标、示例配置、硬件称呼和接口示例都不能代替实测；所有尚未实测或核验的值统一写为 **待实测**。
 
-实际记录时同时保留提交、设备与配置、源素材／源协议、负载开关、预热／取样窗口、样本量、连续运行时长和北京时间记录日期，链接对应原始命令输出、PC 日志或采样记录。比较前后保持相同工况，注明采样工具及统计口径；证据先脱敏，不上传私有影像、凭据或本地私有配置。本轮记录 2026-11-24 魔百盒本地视频、手机 IP Webcam 流、盒到 PC 云存储与 LLM 联动，联想侧 MediaMTX + FFmpeg 本地 RTSP 模拟源、go2rtc ONVIF／RTSP 模拟源，以及 CAVIAR 公开真实视频复验与盒端 RTSP 推流输出；手机流在 11:50–12:07 可用，随后手机端服务停止；日志采集仍未采样。
+实际记录时同时保留提交、设备与配置、源素材／源协议、负载开关、预热／取样窗口、样本量、连续运行时长和北京时间记录日期，链接对应原始命令输出、PC 日志或采样记录。比较前后保持相同工况，注明采样工具及统计口径；证据先脱敏，不上传私有影像、凭据或本地私有配置。本轮记录 2026-11-24 魔百盒本地视频、手机 IP Webcam 流、盒到 PC 云存储与 LLM 联动，联想侧 MediaMTX + FFmpeg 本地 RTSP 模拟源、go2rtc ONVIF／RTSP 模拟源，以及 CAVIAR 公开真实视频复验与盒端 RTSP 推流输出；手机流在 11:50–12:07 可用，随后手机端服务停止；16:21–16:37 完成硬件补充核验与日志链路基础验收。
 
 ## 1. 真实硬件与运行环境
 
@@ -10,11 +10,11 @@
 
 | 核验字段 | 魔百盒（边缘运行） | 联想 PC（构建／推理／存储） | 手机源（视频源） |
 | --- | --- | --- | --- |
-| 精确型号／SoC（lscpu／/proc/device-tree/model 实读） | `SKYWORTH E900V22C`（device-tree）；lscpu 显示 `Cortex-A53`，未单列 SoC 型号 | `Intel(R) Pentium(R) Gold 6500Y`（Win32_Processor） | 待实测 |
+| 精确型号／SoC（lscpu／/proc/device-tree/model 实读） | `SKYWORTH E900V22C`；device-tree 为 `amlogic,g12a`，soc0 报告 `Amlogic Meson`／`G12A (Unknown)`，revision `28:c - 70:2`；具体 S905 商业型号未核验 | `Intel(R) Pentium(R) Gold 6500Y`（Win32_Processor） | 待实测 |
 | CPU 架构／核心规格 | aarch64，4 核 Cortex-A53，每核 1 线程（lscpu） | x86_64，2 核 4 线程（Win32_Processor） | 待实测 |
 | NEON 指令支持及证据 | 支持；`/proc/cpuinfo` 的 Features 含 `asimd`，不含 `asimddp` | 不适用（x86_64） | 待实测 |
 | AVX 指令支持及证据 | 不适用（aarch64） | 待实测（未读取 CPU flags） | 不适用 |
-| 内存容量／类型／规格 | 总内存 1935 MiB（`free -m`）；类型／规格未读取 | 17,096,011,776 字节（约 15.9 GiB，Win32_ComputerSystem）；类型／规格未读取 | 待实测 |
+| 内存容量／类型／规格 | `free -b` 总内存 2,029,686,784 字节（1935.66 MiB）；DDR 代际／速率／通道未核验 | 17,096,011,776 字节（约 15.9 GiB，Win32_ComputerSystem）；类型／规格未读取 | 待实测 |
 | OS 发行版／版本 | Armbian OS 25.02.0 noble（`/etc/os-release`） | Windows 11 Home 10.0.26200 | 待实测 |
 | 内核版本 | 6.6.74-happy-new-year aarch64 | 10.0.26200（Windows NT） | 待实测 |
 | glibc 运行版本 | 2.39-0ubuntu8.3（`ldd --version`） | 不适用（Windows） | 不适用 |
@@ -23,6 +23,17 @@
 | llama.cpp／llama-server 运行版本／提交 | 未在边缘运行；验收时临时开启后关闭 | `b12669`（commit `30ec35ae2`），Windows x64 CPU 构建 | 不适用 |
 | 采集软件／视频源协议 | edge-vision-analyzer 读取本地 MP4（H.264）并循环；手机流经 PC 中继时读取 HTTP MJPEG；RTSP 模拟源经 PC TCP 中继读取 H.264；go2rtc 1.9.15 用 exec + libx264 循环 30 秒 CAVIAR 素材并提供 ONVIF 子集，盒端经同一 PC 中继读取；CAVIAR 真实视频转 H.264 后用同一 RTSP 路径；`streamer.mode=rtsp` 时再经同一中继向 MediaMTX `/edge` 推 H.264 | 运行 `llama-server :8080` 与 FastAPI 云存储 `:8090`；MediaMTX v1.21.4（RTSP :8554／API :9997，路径 `cam`／`edge`）+ FFmpeg 推流；go2rtc v1.9.15（RTSP :8554、API／ONVIF :1984，均绑定回环） | IP Webcam `/shot.jpg` 200（1920×1080）、`/video` 200；硬件与系统版本待实测 |
 | 采集证据／日期／输出记录 | 2026-11-24 11:50–11:53、12:25–12:26、13:22–13:23、14:15–14:20、14:55–14:56（北京时间）；`/api/v1/health`、`/api/v1/stats`、`journalctl`、`systemctl show` | 2026-11-24 12:10–12:11、12:24–12:26、14:02–14:20、14:50–14:56（北京时间）；`/v1/models`、`/health`、存储 `/api/v1/events` 与图片响应、MediaMTX `/v3/paths/list` 与 `ffprobe` 拉流、go2rtc ONVIF SOAP 响应 | 2026-11-24 11:50–12:07（北京时间）；`/shot.jpg` 与 `/video` 响应 |
+
+2026-11-24 16:21（北京时间）追加只读硬件核验，来源为 device-tree、soc0、`lscpu`、`free -b`、`lsblk -b`、cpufreq 与 thermal sysfs，公开记录见 [Discussion #148](https://github.com/nhh37740-glitch/edge-vision-analyzer/discussions/148)。设备树可能来自适配镜像，不据盒名推断商业 SoC 型号。
+
+| 补充硬件项 | 实读值与边界 |
+| --- | --- |
+| CPU 修订与指令集 | Cortex-A53 r0p4；4 核 4 线程；`fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid`，未暴露 `asimddp`／`fphp`／`asimdhp` |
+| 内置 MMC | `mmcblk2`，名称 Biwin；7,818,182,656 字节（7.28125 GiB）；逻辑／物理块均为 512 字节 |
+| zram | 交换设备约 967.83 MiB，另有 50 MiB 挂载 `/var/log`；ramlog enabled，不能据 zram 推断所有日志均无持久化 |
+| CPU 调频 | `cpufreq-dt`／`schedutil`；驱动档位 1.0–1.908 GHz；策略 1.512–1.908 GHz；瞬时读数 1.908 GHz，不代表额定频率或持续性能 |
+| 温区与阈值 | CPU 43.5°C、DDR 温区 43.9°C；CPU passive/hot/critical 配置为 85/95/110°C，DDR passive/critical 为 85/110°C；阈值未由压测触发，温区名称不证明 DDR 代际 |
+| GPU 与冷却 | device-tree 为 `amlogic,meson-g12a-mali`／`arm,mali-bifrost`；具体核心型号与性能未核验；CPU/GPU cooling 采样状态均为 0，非应用温控能力 |
 
 ## 2. 实际模型参数、内存与流控
 
@@ -52,8 +63,25 @@
 | 有界队列 | GenAiWorker 待处理队列容量／丢弃行为 | 1／只保留最新事件 | `src/transport/genai_worker.cpp` |
 | 云存储 | 盒到 PC 真机投递结果 | 1 条事件 `evt_0_1`（person 0.817），中文摘要“女子站在门口，按下门铃。”，LLM 7744 ms，图片 18,648 字节可读取 | PC `/api/v1/events` 与 `/api/v1/images/2026-11-24/evt_0_1.jpg` |
 | 服务内存限制 | systemd 实际生效 MemoryMax | 314572800 字节（300 MiB） | `systemctl show edge-vision -p MemoryMax` |
-| 内存日志 | journald 实际存储模式／内存文件空间上限 | 待实测（未安装 drop-in） | — |
-| 日志采集流控 | Fluent Bit 输入缓冲阈值／存储模式 | 待实测（未安装） | — |
+| 内存日志 | journald 实际存储模式／内存文件空间上限 | `Storage=volatile`／`RuntimeMaxUse=20M`／`ForwardToSyslog=no` | `systemd-analyze cat-config`；`/etc/systemd/journald.conf.d/zz-edge-vision.conf` 晚于发行版 `syslog.conf`；空间不是实时硬上限 |
+| 日志采集流控 | Fluent Bit 输入缓冲阈值／存储模式 | `Mem_Buf_Limit=2MB`／`storage.type=memory`，无 DB 或磁盘积压 | 已安装的 `fluent-bit.conf`、systemd input 启动日志；阈值不代表 RSS |
+
+### 日志链路验收（2026-11-24）
+
+应用提交为 `cb6131b`，部署配置为本 PR 的 `deploy/` 模板；目标机 noble／arm64，Fluent Bit 5.2.0、libpq5 16.15 离线安装，`--dry-run` 成功，采集器 active／enabled。样本来自 SSH 命令、`/proc/<MainPID>/status`、journal 和 PC API，不公开含机器标识的完整 journal 对象。应用保持本地 30 秒 MP4 循环、640×480@15、MAD 8.0，LLM／存储关闭。
+
+| 验收项 | 实测结果与口径 |
+| --- | --- |
+| 最终配置资源窗口 | 16:36:36–16:37:36（北京时间），60 秒、每 15 秒 1 次，共 5 次 |
+| Fluent Bit RSS | `VmRSS` 21,760–22,016 KiB（21.25–21.50 MiB） |
+| 采集器 cgroup | `MemoryCurrent=4,075,520` 字节，5 次均相同；`MemoryMax=100,663,296` 字节（96 MiB），`NRestarts=0`；不与 RSS 混用 |
+| journal 文件空间 | 5 次 `journalctl --disk-usage` 均为 `19.9M`，位于 `/run/log/journal`；没有 `/var/log/journal` |
+| PC 接收与查询 | HTTP output 返回 204；GET 当日 `tail=1000` 返回 200／`application/x-ndjson`；抽取的 6 条真实 journal 记录均含 `MESSAGE` 和 edge unit，非 edge 为 0；另有此前手工 API 探针不计入 journal 样本 |
+| 过滤与 syslog 旁路 | 唯一非 edge `logger` 探针匹配 0；关闭 journal→syslog 转发后，重启 edge 产生的新启动消息在 syslog 新增区间匹配 0，文件 inode 未变；未删除既有日志，不声称整机其他日志都无持久化 |
+| 接收端不可达 | 16:34:42–16:35:02 临时指向关闭的 `127.0.0.1:1`，PC 服务保持运行；实际 flush 失败、11 秒后重试、耗尽后丢弃；服务仍 active、`NRestarts=0`、RSS 22,016 KiB、`MemoryCurrent=4,202,496` 字节 |
+| 恢复 | 自动恢复 PC 地址并重启采集器，随后重启 edge；16:35:51 新批次返回 204，PC 查询读到新日志。只验证后续投递恢复，不承诺历史补传 |
+| 视频侧影响 | 采集 14.9 FPS、检测 0.1 FPS、丢帧 0；应用 RSS 27.4–27.5 MB，SoC 39.4–39.9°C；未单独测日志采集 CPU 增量 |
+| 未覆盖 | 整机重启、真实网线断开、长时间高吞吐和 PC 文件留存压力均待实测；不把关闭端口模拟写成物理断网验收 |
 
 ## 3. 各里程碑性能记录
 
