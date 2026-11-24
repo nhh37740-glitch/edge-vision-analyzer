@@ -1,6 +1,6 @@
 # 简历技术栈与证据清单
 
-本文件回应 Issue #134：把仓库里真实使用过的嵌入式与边缘计算名词按证据分档，避免把规划项写成已掌握。所有数值来自 [实测台账](benchmarks.md)；命令中的 `<盒地址>` 按现场替换，不在公开记录写私有机密。
+本文件回应 Issue #134：把仓库里真实使用过的嵌入式与边缘计算名词按证据分档，避免把规划项写成已掌握。硬件与性能数值来自 [实测台账](benchmarks.md)；命令中的 `<盒地址>` 按现场替换，不在公开记录写私有机密。
 
 ## 1. 分档定义
 
@@ -19,13 +19,15 @@
 | fp16／int8 量化选型与回退 | B | 检测量化代码与单测；盒端无 `asimddp`，实际回退 fp32 | 实现量化候选与运行时回退；真机未完成量化对照 |
 | NEON | B | NCNN aarch64 后端默认启用；无 A/B 实测 | 只说“运行于 NEON 可用的 ARM64”，不写“NEON 优化” |
 | 有界队列与满时丢最旧 | A | `src/core/bounded_queue.hpp`、提交 `3f9c45d`／`f4a7a5c` | 用有界队列隔离采集、检测与推流，10 分钟丢帧 0 |
-| systemd 托管＋cgroup `MemoryMax=300M`＋journal | A | `deploy/edge-vision.service`、[benchmarks](benchmarks.md) 参数表 | 用 systemd 托管服务并设置 cgroup 内存上限；SIGTERM 约 1 秒退出 |
+| systemd 托管＋cgroup v2 `MemoryMax=300M`＋journal | A | `deploy/edge-vision.service`、[benchmarks](benchmarks.md) 参数表；`stat -fc %T /sys/fs/cgroup` 为 `cgroup2fs` | 用 systemd 托管服务并在 cgroup v2 设置内存上限；SIGTERM 约 1 秒退出 |
+| 热管理（仅观测） | C | [踩坑记录](troubleshooting.md) 魔百盒热管理、[API](api.md) `soc_temp_c` | 写“记录 SoC 温度并识别无风扇热降频限制”，不写“温控调度” |
 | journald volatile 模板 | C | `deploy/journald-edge.conf` 模板未安装 | 不写“已配置 journald 限额” |
+| Fluent Bit／journald 采集 | B | `deploy/fluent-bit.conf`、`deploy/journald-edge.conf`；PC `/api/v1/logs` 已实现并有离线测试；盒端未安装 | 写“日志采集模板与接收端已实现”，不写“已上线” |
 | aarch64 交叉编译与 Release | B | `cmake/aarch64-toolchain.cmake`、`.github/workflows/release.yml`；尚无 Release，盒端为离线原生构建 | 写“已配置交叉编译工作流”，不写“已发版” |
 | 静态 FFmpeg CLI 推流 | A | `/usr/local/bin/ffmpeg` 7.0.2-static；提交 `4eac7a5` | 用静态 FFmpeg 将 OSD 帧编码为 H.264／yuv420p 并推 RTSP |
 | RTSP 取流／推流＋MediaMTX | A | 提交 `dcd7534`、`4eac7a5`；约 15 FPS | 搭建 MediaMTX＋FFmpeg 可重复源，完成盒端 RTSP 输入与输出验收 |
 | ONVIF | C | 提交 `fa2d8cb`；仅 go2rtc 模拟器 Device／Media 子集，`src/` 无 ONVIF 客户端 | 写“ONVIF 模拟器控制面联调”，不写“支持 ONVIF” |
-| TCP 中继 | A（临时验收手段） | README 模拟器章节；未进入仓库功能 | 不写“实现中继服务”；只写“为绕过防火墙临时转发” |
+| TCP 中继 | C（临时验收，不入简历） | README 模拟器章节；未进入仓库功能 | 不写“实现中继服务”；只写“为绕过防火墙临时转发” |
 | RSS／温度／FPS／推理时延指标 | A | `src/common/metrics.cpp`、[benchmarks](benchmarks.md) | 采集 RSS、SoC 温度、采集／检测 FPS；CPU 由 systemd `CPUUsageNSec` 外部测算 |
 | cpp-httplib REST／MJPEG／PATCH | A | `src/api/`、提交 `00ef395`／`e7e343a` | 用 cpp-httplib 提供 health、stats、config 热更新、快照与 MJPEG |
 | GoogleTest／CTest | A | `tests/`，8 个 C++ 测试目标、65 个 `TEST` | 用 GoogleTest／CTest 建立离线回归，覆盖采集、检测、API 与推流 |
@@ -39,7 +41,7 @@
 - 在 2 GB 级 Armbian／Cortex-A53 盒上以 C++17 构建有界队列多线程流水线：FFmpeg libav* 解码 → 帧差 → NCNN 检测 → OSD → MJPEG／RTSP；空载 10 分钟丢帧 0、RSS 28.4 MB、SoC 40.6 °C。
 - 用 systemd 托管并设置 cgroup `MemoryMax=300M`、`Restart=always` 与 journal 日志；SIGTERM 约 1 秒优雅退出。
 - 搭建 MediaMTX＋FFmpeg 可重复 RTSP 源与接收端，完成盒端 H.264／yuv420p／约 15 FPS 推流；另以 go2rtc 完成 ONVIF 模拟器控制面子集联调。
-- 边缘事件异步投递至 FastAPI＋SQLite，接入 llama.cpp Qwen2-VL-2B；视觉 token 调优把单次描述从 59.4 s 降到 8.45 s。
+- 边缘事件异步投递至 FastAPI＋SQLite，并由 PC 侧 llama.cpp Qwen2-VL-2B 生成描述；视觉 token 调优把单次描述从 59.4 s 降到 8.45 s。
 
 > ONVIF、交叉编译发版与 Fluent Bit 日志采集不能写成“已掌握”；分别按 C、B、B 档表述。
 
