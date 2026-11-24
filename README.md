@@ -102,7 +102,7 @@ python -m uvicorn server:app --app-dir cloud-storage --host 127.0.0.1 --port 809
 
 盒子只运行程序，不编译大型 C++ 依赖。先在 PC 准备 ARM64 程序、匹配的运行库、模型、输入源和本地配置，再按[部署与服务说明](docs/architecture.md)操作；脚本入口为 [deploy_to_box.sh](scripts/deploy_to_box.sh)。
 
-现有脚本不安装 `lib/`；动态发行包须停服务后先安装同包运行库。构建打包实现及手动 runner 验证见 [PR #151](https://github.com/nhh37740-glitch/edge-vision-analyzer/pull/151)，目前尚未合并，新包盒端运行与正式发布由 [#154](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues/154) 跟踪。回退材料仅存 PC，盒端只保留当前运行所需文件。
+现有脚本不安装 `lib/`；动态发行包须停服务后先安装同包运行库。构建打包实现已经[PR #151](https://github.com/nhh37740-glitch/edge-vision-analyzer/pull/151)合并，手动 runner 构建与 PC 侧包检查结果见[实测台账](docs/benchmarks.md#arm64-发行包构建验收2026-11-24)；新包盒端运行与正式发布仍由 [#154](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues/154) 跟踪。回退材料仅存 PC，盒端只保留当前运行所需文件。
 
 ## 深入阅读
 
