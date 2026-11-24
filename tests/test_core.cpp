@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <future>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
 
@@ -180,6 +181,7 @@ TEST(Config, LoadsExampleAndSerializesEverySection) {
   EXPECT_EQ(config.input.width, 640);
   EXPECT_EQ(config.input.height, 480);
   EXPECT_EQ(config.input.target_fps, 15);
+  EXPECT_EQ(config.input.dump_interval_sec, 0);
   EXPECT_EQ(config.detector.target_labels.at(0), "person");
   EXPECT_EQ(config.streamer.http_port, 8081);
 
@@ -187,6 +189,13 @@ TEST(Config, LoadsExampleAndSerializesEverySection) {
   EXPECT_EQ(json.at("llm").at("endpoint"), config.llm.endpoint);
   EXPECT_EQ(json.at("storage").at("timeout_sec"), config.storage.timeout_sec);
   EXPECT_EQ(json.at("event").at("end_grace_sec"), config.event.end_grace_sec);
+}
+
+TEST(Config, RejectsNegativeDumpInterval) {
+  edge::Config config;
+  config.input.source = "assets/demo_clip.mp4";
+  config.input.dump_interval_sec = -1;
+  EXPECT_THROW(edge::validate(config), std::runtime_error);
 }
 
 }  // namespace

@@ -165,6 +165,15 @@ if(BUILD_TESTING)
     edge_core edge_common edge_transport GTest::gtest_main)
   add_test(NAME test_transport COMMAND test_transport)
   set_tests_properties(test_transport PROPERTIES TIMEOUT 5)
+
+  find_program(BASH_EXECUTABLE bash)
+  if(BASH_EXECUTABLE)
+    add_test(NAME test_deploy_script
+      COMMAND ${BASH_EXECUTABLE}
+              ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_deploy_script.sh
+              ${CMAKE_CURRENT_SOURCE_DIR}/scripts/deploy_to_box.sh)
+    set_tests_properties(test_deploy_script PROPERTIES TIMEOUT 5)
+  endif()
 endif()
 
 # Cross builds use -DBUILD_TESTING=OFF; cmake/aarch64-toolchain.cmake selects
