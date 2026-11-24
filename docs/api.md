@@ -1,8 +1,8 @@
 # Edge Vision Analyzer — 双服务 API 契约
 
-状态：有效设计契约；`v0.1-oculus` 的 health、stats、config 读取与 source-switch，`v0.2-discern` 的 PATCH config 原子热更新，`v1.0-vox` 的 snapshot 与 stream，以及 `v0.3-nous` 的云存储 health/events/images/logs 均已实现。边缘端点已在本机回环与离线用例验证，云存储由离线 pytest 覆盖，真机验收待执行。维护责任：项目维护 Agent。更新日期：2026-11-24（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
+状态：有效设计契约；`v0.1-oculus` 的 health、stats、config 读取与 source-switch，`v0.2-discern` 的 PATCH config 原子热更新，`v1.0-vox` 的 snapshot 与 stream，以及 `v0.3-nous` 的云存储 health/events/images/logs 均已实现。边缘端点已在本机回环与离线用例验证，云存储由离线 pytest 覆盖；2026-11-24 已在魔百盒完成 health/stats/config/snapshot/stream/PATCH/source-switch 的本地视频真机验收，手机流、启用 LLM／存储后的联动、RTSP 与日志采集仍待验收。维护责任：项目维护 Agent。更新日期：2026-11-24（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
 
-本轮不宣称真机验收；已实现范围仅指本机回环与离线用例验证。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
+本轮只宣称上表所列端点在魔百盒本地视频工况的验收；手机流、启用 LLM／存储后的探活与写入、RTSP／MediaMTX 与 Fluent Bit 未验收。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
 
 ## 1. 两个服务的地址与职责
 
@@ -75,7 +75,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 }
 ```
 
-节点状态为 `starting/running/stopping/stopped/failed/not_enabled`。两个上游分别报告 `disabled/reachable/unreachable/unknown`。只有 `CaptureNode` 失败时边缘返回 200、`status: degraded`；LLM/Storage 的上游状态由后台探活线程维护：启用时立即探测一次并按约 2 秒间隔刷新，单次 `GET <base>/health` 的超时上限为 500ms，200 报告 `reachable`，连接失败、超时或非 200 报告 `unreachable`，首轮完成前短暂报告 `unknown`，关闭时报告 `disabled`。探活结果只缓存并更新对应字段，不改变边缘的 200 与 `status`；health 请求只读取缓存，不等待上游；探活只发送 GET，不触发真实多模态生成或存储写入。上述行为已在本机回环与离线用例验证，未做真机验收。
+节点状态为 `starting/running/stopping/stopped/failed/not_enabled`。两个上游分别报告 `disabled/reachable/unreachable/unknown`。只有 `CaptureNode` 失败时边缘返回 200、`status: degraded`；LLM/Storage 的上游状态由后台探活线程维护：启用时立即探测一次并按约 2 秒间隔刷新，单次 `GET <base>/health` 的超时上限为 500ms，200 报告 `reachable`，连接失败、超时或非 200 报告 `unreachable`，首轮完成前短暂报告 `unknown`，关闭时报告 `disabled`。探活结果只缓存并更新对应字段，不改变边缘的 200 与 `status`；health 请求只读取缓存，不等待上游；探活只发送 GET，不触发真实多模态生成或存储写入。上述行为已在本机回环与离线用例验证；魔百盒真机已验证 health 200、`CaptureNode` 为 `running` 且 LLM／存储关闭时分别返回 `disabled`，启用上游后的 `reachable`／`unreachable` 探活仍待真机联调。
 
 `GET :8081/api/v1/stats` 成功示例：
 
@@ -92,9 +92,9 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 }
 ```
 
-保留原统计中无冲突的平均 LLM 耗时和累计丢帧指标。未启用或尚无样本的阶段指标返回 0。`dropped_frames` 已由 Issue #55 实现：统计节点输入队列满时丢弃的最旧帧和节点停止时丢弃的队列帧，并与 Metrics 累计值合并返回；无丢帧时为 0。无状态边缘节点 RSS 目标严格 **小于 150MB**；实际超限仍须如实报告测量值。
+保留原统计中无冲突的平均 LLM 耗时和累计丢帧指标。未启用或尚无样本的阶段指标返回 0。`dropped_frames` 已由 Issue #55 实现：统计节点输入队列满时丢弃的最旧帧和节点停止时丢弃的队列帧，并与 Metrics 累计值合并返回；无丢帧时为 0。无状态边缘节点 RSS 目标严格 **小于 150MB**；魔百盒空载验收实测 28.4MB，10 分钟窗口丢帧 0。实际超限仍须如实报告测量值。
 
-可选字段 `soc_temp_c` 为可空数字，单位摄氏度。读取 Linux `/sys/class/thermal/thermal_zone0/temp` 的毫摄氏度值并除以 1000，例如 62500 对应 `62.5`；读取或解析失败返回 `null`，不使用 0 代替错误。该值仅供压测观测，不触发限频、停机或其他温控动作。Linux 实现已具备，目标机实测待补。
+可选字段 `soc_temp_c` 为可空数字，单位摄氏度。读取 Linux `/sys/class/thermal/thermal_zone0/temp` 的毫摄氏度值并除以 1000，例如 62500 对应 `62.5`；读取或解析失败返回 `null`，不使用 0 代替错误。该值仅供压测观测，不触发限频、停机或其他温控动作。魔百盒本地视频空载实测 40.6 °C，临时强制逐帧检测最高 45.9 °C。
 
 ## 3. 边缘配置读取与热更新
 
@@ -139,7 +139,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 
 仅允许五个叶子字段：`detector.motion_mad_threshold`（0..255）、`detector.conf_threshold`（0..1）、`llm.enabled`（布尔）、`llm.cooldown_sec`（非负整数秒数）、`storage.enabled`（布尔）。原四项在 `v0.2-discern` 支持，存储开关在 `v0.3-nous` 接入。可只提交一个字段；拒绝空对象、未知字段、错误类型及范围错误，统一返回 400/`INVALID_PARAMETER`，错误消息不包含服务器路径。
 
-先整份校验请求，再在配置锁内一次性发布完整的配置快照；任一字段失败则全部不变，GET 立即读到旧值或完整新值而不会读到部分更新。成功返回 200 和完整生效配置（与 GET 相同的 `to_json`），不持久化到磁盘。已注入的运行节点在快照发布后通过原子 setter 生效：MAD 阈值用于下一帧，置信度用于下一帧检测与过滤，冷却时间用于下一次触发，LLM/存储开关用于后续任务。`GenAiWorker` 在进程启动后始终运行，两个开关都关闭时不编码、不发 HTTP；开关只决定后续任务是否编码和投递，不改变 worker 的启动/停止生命周期。视频源走专用切源接口；模型、线程数、端口以及 `storage.endpoint/storage.timeout_sec` 仅静态配置，不能热更。
+先整份校验请求，再在配置锁内一次性发布完整的配置快照；任一字段失败则全部不变，GET 立即读到旧值或完整新值而不会读到部分更新。成功返回 200 和完整生效配置（与 GET 相同的 `to_json`），不持久化到磁盘。已注入的运行节点在快照发布后通过原子 setter 生效：MAD 阈值用于下一帧，置信度用于下一帧检测与过滤，冷却时间用于下一次触发，LLM/存储开关用于后续任务。`GenAiWorker` 在进程启动后始终运行，两个开关都关闭时不编码、不发 HTTP；开关只决定后续任务是否编码和投递，不改变 worker 的启动/停止生命周期。视频源走专用切源接口；模型、线程数、端口以及 `storage.endpoint/storage.timeout_sec` 仅静态配置，不能热更。魔百盒真机已核验 MAD 阈值热更新与越界值 400/`INVALID_PARAMETER`。
 
 ```json
 {
@@ -165,11 +165,11 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 {"status": "switched", "source": "assets/demo_clip.mp4", "loop": true}
 ```
 
-切回手机可使用 `{"source":"http://192.168.10.12:8080/video","loop":false}`，也可使用实际 RTSP 地址。两个字段必填，`source` 为非空字符串；字段缺失或类型错误返回 400/`INVALID_PARAMETER`。新源打开并完成解码初始化后才提交切换；打开失败、解码初始化失败或录制期间切源返回 400/`INVALID_SOURCE`，继续原视频源。成功后 GET 配置反映新的 `input.source/input.loop`。本地路径相对进程工作目录，交付时以仓库/部署资源根目录运行。
+切回手机可使用 `{"source":"http://192.168.10.12:8080/video","loop":false}`，也可使用实际 RTSP 地址。两个字段必填，`source` 为非空字符串；字段缺失或类型错误返回 400/`INVALID_PARAMETER`。新源打开并完成解码初始化后才提交切换；打开失败、解码初始化失败或录制期间切源返回 400/`INVALID_SOURCE`，继续原视频源。成功后 GET 配置反映新的 `input.source/input.loop`。本地路径相对进程工作目录，交付时以仓库/部署资源根目录运行。魔百盒已用同一本地视频验证 200/`switched`；失败保留原源仍由离线用例覆盖。
 
-`GET :8081/api/v1/snapshot.jpg` 返回最新实时 OSD JPEG，媒体类型 `image/jpeg`；尚无首帧返回 503/JSON。它是实时展示快照，不是历史干净抓拍。
+`GET :8081/api/v1/snapshot.jpg` 返回最新实时 OSD JPEG，媒体类型 `image/jpeg`；尚无首帧返回 503/JSON。它是实时展示快照，不是历史干净抓拍。魔百盒真机已返回 640×480 JPEG，并在强制检测时显示 `person 0.71` 的 OSD 框。
 
-`GET :8081/api/v1/stream` 返回长连接，媒体类型为 `multipart/x-mixed-replace; boundary=frame`，每个部分以 `--frame` 分隔并包含 `Content-Type: image/jpeg`。发送流头前无可用帧可返回 503/JSON；开始流后不能插入 JSON 错误体，断线由客户端重连。慢客户端不得造成无界缓存。仅有活跃客户端或收到快照请求时进行 JPEG 编码。可选 RTSP 使用外部 MediaMTX 中继。
+`GET :8081/api/v1/stream` 返回长连接，媒体类型为 `multipart/x-mixed-replace; boundary=frame`，每个部分以 `--frame` 分隔并包含 `Content-Type: image/jpeg`。发送流头前无可用帧可返回 503/JSON；开始流后不能插入 JSON 错误体，断线由客户端重连。慢客户端不得造成无界缓存。仅有活跃客户端或收到快照请求时进行 JPEG 编码。可选 RTSP 使用外部 MediaMTX 中继。魔百盒已用 3 秒客户端核验流头、`--frame` 分隔与 JPEG 数据，RTSP／MediaMTX 未验收。
 
 ## 5. PC 云存储 API
 

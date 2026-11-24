@@ -6,13 +6,13 @@ info:
     paths中。
 tags:
 - name: v0.1-oculus
-  description: 采集与基础控制面，已实现（本机回环与离线验证）；LLM/Storage 上游探活已实现，degraded 仍只在 CaptureNode 失败时出现。
+  description: 采集与基础控制面，已实现；2026-11-24 在魔百盒完成本地视频真机验收，手机流仍待验收。degraded 仍只在 CaptureNode 失败时出现。
 - name: v0.2-discern
-  description: 检测已实现并接入运行入口；PATCH config 热更新待实现。
+  description: 检测与 PATCH config 原子热更新已实现并接入运行入口；魔百盒本地视频验收完成。
 - name: v0.3-nous
-  description: 事件聚合与异步语义分析已实现并接入运行入口；云存储服务已实现，真机验收待执行。
+  description: 事件聚合与异步语义分析已实现并接入运行入口；云存储服务由离线 pytest 覆盖，边缘与 LLM／存储联动仍待真机验收。
 - name: v1.0-vox
-  description: OSD、快照与推流已实现并接入运行入口；真机与 MediaMTX 验收待执行。
+  description: OSD、快照与 MJPEG 已在魔百盒验收；RTSP／MediaMTX、日志采集与 Fluent Bit 待验收。
 paths:
   /api/v1/health:
     get:
@@ -504,7 +504,7 @@ components:
       required:
       - status
       - endpoint
-      description: 单个上游的连通状态。由边缘后台探活线程缓存；探活不触发实际生成或写入，上游不可达不改变边缘自身的200与status。上述行为已在本机回环与离线用例验证，未做真机验收。
+      description: 单个上游的连通状态。由边缘后台探活线程缓存；探活不触发实际生成或写入，上游不可达不改变边缘自身的200与status。魔百盒已验证 health 200 与关闭时的 disabled；启用上游后的 reachable／unreachable 仍待真机联调。
     Health:
       type: object
       additionalProperties: false

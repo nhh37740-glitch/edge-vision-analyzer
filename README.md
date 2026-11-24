@@ -2,7 +2,7 @@
 
 面向 2GB Armbian 魔百盒的无状态视频分析方案。魔百盒处理手机有线流、运动过滤、目标检测和实时推流，RSS 目标小于 150 MB。联想 PC 提供多模态推理，并独立保存历史事件和未加 OSD 的 JPEG 抓拍。
 
-**当前状态（北京时间 2026-11-24）**：C++17 构建骨架、aarch64 交叉编译工具链、v0.1 核心框架、FFmpeg 采集模块与边缘 REST 控制面已落地（Issue #1–#5），v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）、NcnnDetectorNode（NCNN 目标检测与 NMS）与检测量化选型（fp32/fp16/int8）模块已实现，v0.3 的 JPEG／Base64 编码、GenAiWorker 异步投递与 EventTrackerNode 事件聚合也已实现，并统一接入 `src/main.cpp` 的端到端流水线与优雅退出。核心节点、有界队列、配置指标、RGB24 解码、EOF 循环、断线重连、截帧、remux 录片，以及 health、stats、config（含 PATCH 原子热更新）、source-switch、snapshot、stream 端点已实现；控制面已在本机回环验证，离线 CTest 覆盖核心、采集、控制面、帧差漏斗、检测后处理与选型、推流与 transport。推流输出已按 `config.streamer.mode` 装配：`mjpeg` 不启动外部进程，`rtsp` 时 StreamOutNode 对每帧生成独立 OSD 并以 RGB24 推入 RtspPusher 的 FFmpeg 管道；启动失败只告警，MJPEG 端点与流水线继续运行。事件聚合、GenAiWorker、PC 云存储（FastAPI + SQLite）、health 上游探活与 PATCH config 原子热更新已实现；部署脚本与模板就绪，真机阶段 A、RTSP／MediaMTX 联动与 v1.0 验收待执行。
+**当前状态（北京时间 2026-11-24）**：C++17 构建骨架、aarch64 交叉编译工具链、v0.1 核心框架、FFmpeg 采集模块与边缘 REST 控制面已落地（Issue #1–#5），v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）、NcnnDetectorNode（NCNN 目标检测与 NMS）与检测量化选型（fp32/fp16/int8）模块已实现，v0.3 的 JPEG／Base64 编码、GenAiWorker 异步投递与 EventTrackerNode 事件聚合也已实现，并统一接入 `src/main.cpp` 的端到端流水线与优雅退出。核心节点、有界队列、配置指标、RGB24 解码、EOF 循环、断线重连、截帧、remux 录片，以及 health、stats、config（含 PATCH 原子热更新）、source-switch、snapshot、stream 端点已实现；控制面已在本机回环验证，离线 CTest 覆盖核心、采集、控制面、帧差漏斗、检测后处理与选型、推流与 transport。推流输出已按 `config.streamer.mode` 装配：`mjpeg` 不启动外部进程，`rtsp` 时 StreamOutNode 对每帧生成独立 OSD 并以 RGB24 推入 RtspPusher 的 FFmpeg 管道；启动失败只告警，MJPEG 端点与流水线继续运行。事件聚合、GenAiWorker、PC 云存储（FastAPI + SQLite）、health 上游探活与 PATCH config 原子热更新已实现；部署脚本与模板已就绪。2026-11-24 已在魔百盒完成离线原生构建、systemd 部署与本地视频端到端验收（health、带 OSD 快照、MJPEG、PATCH、SIGTERM 优雅退出），手机流、RTSP／MediaMTX、LLM／存储联动与 Fluent Bit 仍待验收。
 
 ## 接力入口
 
@@ -36,10 +36,10 @@
 
 | 版本 | 采集 FPS | 检测 FPS | NCNN 单帧 P95（ms） | 魔百盒 RSS（MB） | SoC 温度（°C） |
 | --- | --- | --- | --- | --- | --- |
-| `v0.1-oculus` | 待实测 | 待实测 | 待实测 | 待实测 | 待实测 |
-| `v0.2-discern` | 待实测 | 待实测 | 待实测 | 待实测 | 待实测 |
-| `v0.3-nous` | 待实测 | 待实测 | 待实测 | 待实测 | 待实测 |
-| `v1.0-vox` | 待实测 | 待实测 | 待实测 | 待实测 | 待实测 |
+| `v0.1-oculus` | 14.9 | 不适用 | 待实测 | 28.4 | 40.6 |
+| `v0.2-discern` | 14.9 | 0.1 | 待实测 | 28.4 | 40.6 |
+| `v0.3-nous` | 待实测 | 待实测 | 待实测 | 28.4 | 40.6 |
+| `v1.0-vox` | 14.9 | 0.1 | 待实测 | 28.4 | 40.6 |
 
 详细硬件、实际运行参数、压测工况与优化收益见 [实测台账](docs/benchmarks.md)。每个里程碑发版前按实测结果同步摘要。
 
@@ -51,7 +51,7 @@ cd edge-vision-analyzer
 git switch feature/capture
 ```
 
-在阅读冷启动文件并收到后续开发指令后，按 Issue 接续开发；v0.1–v0.3 与 v1.0 的主要模块已接入运行入口，真机验收仍待执行。预建任务见 [GitHub Issues](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues)，阶段归档见 [Milestones](https://github.com/nhh37740-glitch/edge-vision-analyzer/milestones)。
+在阅读冷启动文件并收到后续开发指令后，按 Issue 接续开发；v0.1–v0.3 与 v1.0 的主要模块已接入运行入口并在魔百盒完成首次本地视频验收，手机流、LLM／存储联动、RTSP／MediaMTX 与日志采集仍待验收。预建任务见 [GitHub Issues](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues)，阶段归档见 [Milestones](https://github.com/nhh37740-glitch/edge-vision-analyzer/milestones)。
 
 构建设计：联想 x86_64 Linux 支持本机离线测试构建，并交叉编译 aarch64 运行产物；魔百盒只运行，不编译大型依赖。根 [CMakeLists.txt](CMakeLists.txt) 已启用 C++17，当前可构建 `edge_core`、`edge_common`、`edge_capture`、`edge_detector`、`edge_streamer`、`edge_transport`、`edge_api`、`edge-vision-analyzer`、`test_build`、`test_core`、`test_capture`、`test_detector`、`test_streamer`、`test_transport` 与 `test_api`，其余静态库随里程碑加入。`cmake/aarch64-toolchain.cmake` 使用 `aarch64-linux-gnu-g++`。
 
@@ -82,9 +82,11 @@ bash scripts/start_pc_services.sh
 
 脚本把日志写入 `mktemp -d` 生成的临时目录，就绪时打印两个 PID 与日志路径；只有 `http://127.0.0.1:8080/health` 与 `http://127.0.0.1:8090/health` 都通过才报告就绪。缺少 `llama-server`、`uvicorn` 或 `curl` 时提示安装方式并返回非零。启动或探活失败时打印对应日志尾部，并提示用 `kill <PID>` 停止已启动的进程。脚本不下载模型、不读取 `config/config.local.json`，日志位于临时目录且不提交。
 
-## 魔百盒部署（脚本与模板已就绪，真机验收待执行）
+## 魔百盒部署（脚本与模板已就绪；2026-11-24 完成首次真机验收）
 
-`scripts/deploy_to_box.sh` 按“对时 → 打印系统与库版本 → 发包 → 重启 → 探活 → 输出最近 20 行日志”执行；任一步失败返回非零并打印 `journalctl -u "$SERVICE" -n 20 --no-pager`。模板与脚本不等于已部署：真机验收待执行，当前不声称魔百盒已运行本服务或日志已由 Fluent Bit 接管。
+`scripts/deploy_to_box.sh` 按“对时 → 打印系统与库版本 → 发包 → 重启 → 探活 → 输出最近 20 行日志”执行；任一步失败返回非零并打印 `journalctl -u "$SERVICE" -n 20 --no-pager`。本次部署按相同步骤手工执行；脚本直接覆盖运行中可执行文件的问题已由 Issue #117 修复，修复后在魔百盒复跑通过。手机流、RTSP、LLM／存储联动与 Fluent Bit 仍未验收。
+
+首次真机验收使用 `SKYWORTH E900V22C`（Armbian 25.02.0 noble，Cortex-A53×4，1935 MiB 内存）与本地 `assets/demo_clip_30s.mp4` 循环：`/api/v1/health` 返回 200 且 `CaptureNode` 为 `running`，采集 14.9 FPS，NCNN 平均 40.7 ms，进程 RSS 28.4 MB（systemd `MemoryMax=300M`），10 分钟丢帧 0，SoC 40.6 °C。快照返回 640×480 JPEG 并带 OSD，MJPEG 流头为 `multipart/x-mixed-replace; boundary=frame`，PATCH 阈值热更新与非法值 400 已核验，SIGTERM 约 1 秒退出。构建与版本细节、未验证项见[实测台账](docs/benchmarks.md)；由于目标机无外网且缺少 aarch64 sysroot，本次二进制在盒上离线原生构建，后续发版仍按 Release 工作流交叉编译。
 
 前置条件：
 
