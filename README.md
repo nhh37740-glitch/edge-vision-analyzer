@@ -70,13 +70,24 @@ cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=O
 cmake --build build-native --parallel 2
 ctest --test-dir build-native --output-on-failure --no-tests=error
 
-# aarch64 交叉编译（不运行目标机测试）
+# Ubuntu noble／x86_64 上交叉编译；需预装 ARM64 开发库，不运行目标机测试
 cmake -S . -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-toolchain.cmake -DBUILD_TESTING=OFF
+  -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-toolchain.cmake -DBUILD_TESTING=OFF \
+  '-DCMAKE_INSTALL_RPATH=$ORIGIN/../lib'
 cmake --build build-arm64 --parallel 2
+cmake --install build-arm64 --prefix staging
 ```
 
-本机构建基线（ubuntu-24.04／MSYS2 UCRT64）：CMake 3.31.6、Ninja 1.13.2、GCC 13.3.0、GoogleTest 1.14.0；FFmpeg 库版本为 libavformat 60.16.100、libavcodec 60.31.102、libavutil 58.29.100、libswscale 7.5.100；NCNN 固定 Release Tag `20261020`（BSD-3-Clause），由 CMake FetchContent 首次配置时下载并编译。常规 PR 的 `ci-gate` 不运行 C++ 构建，C++ 变更在提交前本地完成构建与 CTest；aarch64 交叉编译和完整测试只在 `v*` Tag 的 Release 工作流执行。测试不下载模型、不等待真实设备或推理。
+本机构建基线（ubuntu-24.04／MSYS2 UCRT64）：CMake 3.31.6、Ninja 1.13.2、GCC 13.3.0、GoogleTest 1.14.0；FFmpeg 库版本为 libavformat 60.16.100、libavcodec 60.31.102、libavutil 58.29.100、libswscale 7.5.100；NCNN 固定 Release Tag `20261020`（BSD-3-Clause），由 CMake FetchContent 首次配置时下载并编译。常规 PR 的 `ci-gate` 不运行 C++ 构建，C++ 变更在提交前本地完成构建与 CTest；Release 工作流的 `workflow_dispatch` 手动入口和 `v*` Tag 均执行完整测试、aarch64 构建与打包，只有 Tag 触发公开发布。测试不下载模型、不等待真实设备或推理。
+
+Issue #144 的[手动 Release 工作流](https://github.com/nhh37740-glitch/edge-vision-analyzer/actions/runs/45368104945)已于 2026-11-24 成功：Ubuntu runner 上 native 构建、9 个 CTest（8 个 C++ 目标与部署脚本测试，0.92 秒）、5 个 Python 用例（0.64 秒）、ARM64 交叉构建及运行库打包均通过，上传 `edge-vision-analyzer-arm64` artifact，公开发布步骤按设计跳过。本轮联想为 Windows／MSYS2，无可用 WSL/Linux 交叉环境；本机 native 的 8 个 CTest 已通过（并行 1.94 秒），不能将 runner 构建写成本机交叉编译。盒端新包加载、部署与正式 Tag／Release 仍待验收；当前目标网段有线连接断开，SSH 超时。证据与剩余步骤见[发行包验收台账](docs/benchmarks.md#arm64-发行包构建验收2026-11-24)。手动入口须先能由默认分支识别，再选择含相应实现的分支运行。
+
+```sh
+gh workflow run release.yml --ref <含手动入口的分支>
+gh run download <run-id> -n edge-vision-analyzer-arm64 -D <产物目录>
+```
+
+发行包包含 `bin/`、直接及间接动态依赖的 `lib/`、配置／服务模板、版本清单和许可证。程序使用 `$ORIGIN/../lib`，每个随包库使用 `$ORIGIN`；不携带 glibc 或加载器，目标基线为 Ubuntu 24.04 noble／aarch64、glibc 2.39。上面的 `cmake --install` 只安装主程序，完整运行库闭包由 Release 打包步骤收集；内容、部署及回退说明见 [ARM64 离线发行包](deploy/arm64-package.md)。
 
 ## PC 双服务启动
 
@@ -202,8 +213,8 @@ ffprobe -rtsp_transport tcp -select_streams v:0 \
 
 前置条件：
 
-- 联想 PC 已交叉编译 `build-arm64/edge-vision-analyzer`，并准备公开配置模板 `config/config.example.json`；不要传递本机 `config/config.local.json`、模型权重或令牌。
-- 目标机可 SSH 登录，具备 `sudo`、`curl` 与 systemd；已创建 `/opt/edge-vision-analyzer/bin`、`/opt/edge-vision-analyzer/config`，部署用户可写。
+- 准备经交叉构建和打包得到的 `staging/bin/edge-vision-analyzer`、同包 `staging/lib/` 及公开配置模板 `config/config.example.json`；产物来源与验证状态以实测台账为准，不把构建命令当成已验收记录。不要传递本机 `config/config.local.json`、模型权重或令牌。
+- 目标机可 SSH 登录，具备 `sudo`、`curl` 与 systemd；已创建 `/opt/edge-vision-analyzer/bin`、`/opt/edge-vision-analyzer/lib`、`/opt/edge-vision-analyzer/config`，部署用户可写。更新前将旧程序与旧库的回退材料保存到联想 PC，盒上不保留副本；停止 edge 服务并安装包内 `lib/`，再运行下方脚本；具体步骤见[发行包说明](deploy/arm64-package.md#部署与回退)。
 - 按需安装 [edge-vision.service](deploy/edge-vision.service)；日志配置另含 [journald-edge.conf](deploy/journald-edge.conf)、[fluent-bit.conf](deploy/fluent-bit.conf) 与 [fluent-bit-limits.conf](deploy/fluent-bit-limits.conf)。Fluent Bit／libpq5 的一次性离线安装、回退和复验命令见[架构文档第 10.1 节](docs/architecture.md#101-部署配置与一次性离线安装)，该节同时记录已通过的基础链路及未验证范围。
 
 示例地址按现场替换：
@@ -211,12 +222,12 @@ ffprobe -rtsp_transport tcp -select_streams v:0 \
 ```sh
 export EDGE_BOX_HOST=192.168.10.11
 bash scripts/deploy_to_box.sh "$EDGE_BOX_HOST" \
-  build-arm64/edge-vision-analyzer \
+  staging/bin/edge-vision-analyzer \
   config/config.example.json \
   edge-vision
 ```
 
-脚本把构件放入目标机 `/opt/edge-vision-analyzer/bin/`。目标机已有 `config/config.local.json` 时默认保留现场配置，只提示覆盖方式；首次部署（文件不存在）或显式设置 `EDGE_CONFIG_FORCE=1` 时才把配置模板写到该路径。随后重启 `edge-vision.service` 并在目标机循环请求 `http://127.0.0.1:8081/api/v1/health`。目标机目录需预先准备，脚本不保存也不传递 sudo 密码。
+脚本把构件放入目标机 `/opt/edge-vision-analyzer/bin/`，不会上传或安装 `lib/`；运行前须完成同包库的安装。目标机已有 `config/config.local.json` 时默认保留现场配置，只提示覆盖方式；首次部署（文件不存在）或显式设置 `EDGE_CONFIG_FORCE=1` 时才把配置模板写到该路径。随后重启 `edge-vision.service` 并在目标机循环请求 `http://127.0.0.1:8081/api/v1/health`。目标机目录需预先准备，脚本不保存也不传递 sudo 密码。验收后先确认上传归档、staging、deb、配置备份和构建源码均已不再使用，再从盒端删除；只保留当前运行所需程序、库、配置、模型与视频，回退材料仅存联想 PC。本轮清理尚待实际执行与核验。
 
 公开模板的 `input.dump_interval_sec` 默认为 0，即不周期性写盘；调试确需截帧时再显式设置。640×480、每 2 秒一张的估算写入量约 860MB/天，会耗尽盒上可用空间。
 
