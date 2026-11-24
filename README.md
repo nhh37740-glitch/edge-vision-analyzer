@@ -109,7 +109,7 @@ ffmpeg -re -stream_loop -1 -i assets/demo_clip_30s.mp4 -an -r 15 \
 curl -s http://127.0.0.1:8081/api/v1/stats
 ```
 
-Windows 首次监听会弹防火墙确认；若盒端 TCP 8554 超时而 PC 本机回环可达，说明入站仍被拦截，需放行 `mediamtx.exe` 的 TCP 8554／9997，或临时经 PC TCP 中继转发。2026-11-24 实测中 MediaMTX 命中已有入站阻止规则，盒端经本机中继 `18554→8554` 完成 60 秒验收；回环可达不能代替局域网验收。`GET /api/v1/stats` 实测 `capture_fps` 14.1、`dropped_frames` 0，快照 640×480、MJPEG 流头为 `multipart/x-mixed-replace`。与真实 IP 相机相比，该模拟源没有 ONVIF 发现、相机鉴权和相机端编码差异。
+Windows 首次监听会弹防火墙确认；若盒端 TCP 8554 超时而 PC 本机回环可达，说明入站仍被拦截，需删除或禁用 `mediamtx.exe` 的阻止规则并放行 TCP 8554／9997，或临时经 PC TCP 中继转发。2026-11-24 实测中 MediaMTX 命中已有入站阻止规则，盒端经本机中继 `18554→8554` 完成 60 秒验收；回环可达不能代替局域网验收。`GET /api/v1/stats` 实测 `capture_fps` 14.1、`dropped_frames` 0，快照 640×480、MJPEG 流头为 `multipart/x-mixed-replace`。与真实 IP 相机相比，该模拟源没有 ONVIF 发现、相机鉴权和相机端编码差异。
 
 ## 魔百盒部署（脚本与模板已就绪；2026-11-24 完成首次真机验收）
 
