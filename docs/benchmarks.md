@@ -94,7 +94,9 @@ Issue #144／PR #151 的[手动 run 45368104945](https://github.com/nhh37740-gli
 | Runner Python | `py_compile` 成功；锁定依赖环境的 pytest 5 项通过，0.64 秒；有 1 条 Starlette／AnyIO 弃用警告 |
 | ARM64 构建与打包 | 交叉编译、安装、递归运行库打包及 artifact 上传步骤均成功；`readelf` 报告 AArch64，程序 RUNPATH 为 `$ORIGIN/../lib` |
 | 直接动态依赖 | FFmpeg `libavformat.so.60`、`libavcodec.so.60`、`libavutil.so.58`、`libswscale.so.7`，另有 cpp-httplib 0.14、OpenMP、libstdc++ 等；这是新包的 ELF 依赖，不是盒端旧程序的 FFmpeg 7.1.1 运行版本 |
-| Artifact | 名称 `edge-vision-analyzer-arm64`，ID `14908217952`；Actions 外层 artifact 大小 65,247,073 字节，不等同于解压后运行目录大小 |
+| Artifact | 名称 `edge-vision-analyzer-arm64`，ID `14908217952`；Actions 外层 ZIP 为 65,247,073 字节，内层 `tar.gz` 为 65,644,399 字节，不等同于解压后运行目录大小 |
+| PC 包内容核对 | 常规下载与限时重试超时后，通过 Azure 存储地址的六段 HTTP Range 传输取回并安全解压；实际含 131 个运行库文件、122 个动态依赖包条目及对应版权文件，另含 NCNN、nlohmann/json、stb 许可；未上传盒端 |
+| PC ELF 抽检 | 主程序及 5 个直接依赖库（4 个 FFmpeg 库、cpp-httplib）均为 AArch64；主程序 RUNPATH 为 `$ORIGIN/../lib`，抽检库均为 `$ORIGIN`。依赖清单的 FFmpeg 源包版本为 `7:6.1.1-3ubuntu5`；不替代盒端加载器解析与运行验收 |
 | 公开发布 | 手动事件的 `publish-release` 按设计跳过，尚未创建正式 Tag／Release |
 | 盒端状态与阻塞 | 暂停前已确认 edge、Fluent Bit 显式停止；恢复后 SSH 超时，联想目标网段网卡显示 `Disconnected`，无直连路由。未上传新程序／库，未执行清理，也未重新启动服务；当前盒端实时状态未复核 |
 | 后续验收 | 连接恢复后停服务安装同包 `lib/` 与程序，目标加载器解析、部署脚本 health、快照／视频循环、RSS／FPS／温度和退出均待实测；回退材料已取回 PC，盒端既存冗余清理仍待执行 |
