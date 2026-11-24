@@ -35,6 +35,18 @@
 - 根因：魔百盒系统时间停在 2025-07，比构建机慢约 16 个月。
 - 解决命令：部署前用联想当前时间执行 `date -s` 对时；`deploy_to_box.sh` 已含该步骤。
 
+- 现象与命令：手机 `192.168.0.103` 可 ping 通，但 `curl http://192.168.0.103:8080/shot.jpg` 返回连接拒绝；启动手机 IP Webcam 的 Start server 后恢复 200。
+- 根因：IP Webcam 服务随手机锁屏或应用退到后台而停止监听，主机在线不代表端口可用。
+- 解决命令：验收前保持手机屏幕常亮并确认 `/shot.jpg` 返回 200；服务停止后盒端 `CaptureNode` 会重连失败，需要重新启动手机服务。
+
+- 现象与命令：Windows 运行 llama.cpp b12669 报 `VCRUNTIME140.dll` 或 `api-ms-win-crt-heap-l1-1-0.dll` 缺失。
+- 根因：系统缺少可被加载器搜索的 UCRT 转发库与 MSVC 运行库，Git Bash 不会自动使用 `System32\downlevel`。
+- 解决命令：把 `C:\Windows\System32\downlevel\api-ms-win-crt-*.dll` 和已安装应用中的 `vcruntime140*.dll`、`msvcp140*.dll`、`concrt140.dll` 复制到 `llama-server.exe` 同目录；更规范的做法是安装 VC++ 运行库。
+
+- 现象与命令：Qwen2-VL-2B 默认处理 640×480 快照需 425 个图像 token，llama-server 端到端约 59.4 秒，超过盒端 25 秒读超时。
+- 根因：CPU 视觉编码耗时随图像 token 数增长，默认视觉分辨率过高。
+- 解决命令：llama-server 增加 `--image-max-tokens 64`，同一快照降至 88 token、端到端 8.45 秒，盒端可正常返回摘要。
+
 - 现象与命令：2026-11-24 魔百盒 `/opt/edge-vision-analyzer/snapshots/` 累计 330 张 JPEG、6.7MB，部署模板的 `dump_interval_sec` 为 2。
 - 根因：部署脚本把公开模板覆盖为 `config.local.json`，采集节点按间隔持续写盘；640×480 每 2 秒一张约 860MB/天，与无状态边缘契约冲突。
 - 解决命令：模板与结构默认值改为 0，盒上配置改为 0 并清空 `snapshots/`，重启后 health 200；目标机已有配置默认保留，覆盖需 `EDGE_CONFIG_FORCE=1`。
