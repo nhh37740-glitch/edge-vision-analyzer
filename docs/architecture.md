@@ -1,6 +1,6 @@
 # Edge Vision Analyzer 架构
 
-状态：有效设计契约；v0.1 核心框架、采集模块与控制面（health、stats、config 读取与 PATCH 原子热更新、source-switch）已实现，v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）与 NcnnDetectorNode（NCNN 目标检测与 NMS）模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现；以上模块已由 `src/main.cpp` 接入端到端运行入口。PC 云存储服务（FastAPI + SQLite）与 LLM/Storage 上游探活已实现，部署脚本与模板已就绪，PATCH config 原子热更新已实现；2026-11-24 已在魔百盒完成本地视频真机部署验收、盒到 PC 存储投递、手机流与 LLM 联动；RTSP／MediaMTX 与 Fluent Bit 仍待验收。维护：项目接力 Agent；日期：2026-11-24（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集及 PC 日志落盘／查询，PATCH-009 补充部署对时与温度观测。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
+状态：有效设计契约；v0.1 核心框架、采集模块与控制面（health、stats、config 读取与 PATCH 原子热更新、source-switch）已实现，v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）与 NcnnDetectorNode（NCNN 目标检测与 NMS）模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现；以上模块已由 `src/main.cpp` 接入端到端运行入口。PC 云存储服务（FastAPI + SQLite）与 LLM/Storage 上游探活已实现，部署脚本与模板已就绪，PATCH config 原子热更新已实现；2026-11-24 已在魔百盒完成本地视频真机部署验收、盒到 PC 存储投递、手机流与 LLM 联动；本地 MediaMTX + FFmpeg RTSP 模拟源取流已验收；盒端 RTSP 推流输出与 Fluent Bit 仍待验收。维护：项目接力 Agent；日期：2026-11-24（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集及 PC 日志落盘／查询，PATCH-009 补充部署对时与温度观测。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
 
 ## 1. 物理拓扑与三个服务入口
 
@@ -94,13 +94,13 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 | 边缘／存储分离 | [Kerberos Agent](https://github.com/kerberos-io/agent)、[Kerberos Vault](https://github.com/kerberos-io/vault) | 参考边缘处理与独立集中存储的职责分离；本项目自定无状态边缘、FastAPI／SQLite 与 8090 API，不声称照搬上游实现或上游本身禁止本地录制 |
 | core | [VideoPipe](https://github.com/sherlockchou86/VideoPipe) | 参考节点连接和元数据流转；本项目 BaseNode、容量 2 丢旧策略为内部契约 |
 | detector / transport | [Frigate](https://github.com/blakeblackshear/frigate) | 帧差 → 检测 → 瞬时事件聚合 → 异步 GenAI；历史持久化迁到 PC |
-| capture | [FFmpeg demux_decode.c](https://github.com/FFmpeg/FFmpeg/blob/master/doc/examples/demux_decode.c) | 原生 C API、sws_scale、RTSP TCP、I/O 超时，不引入 OpenCV |
+| capture | [FFmpeg demux_decode.c](https://github.com/FFmpeg/FFmpeg/blob/master/doc/examples/demux_decode.c) | 原生 C API、sws_scale、所有输入统一 `rtsp_transport=tcp`、3 秒 `rw_timeout`，不引入 OpenCV |
 | detector | [NCNN](https://github.com/Tencent/ncnn)、[NanoDet](https://github.com/RangiLyu/nanodet/blob/main/demo_ncnn/nanodet.cpp)、[YOLO-FastestV2](https://github.com/dog-qiuqiu/Yolo-FastestV2) | ncnn::Net、FP16／NEON、2 线程、from_pixels_resize 与 NMS |
 | transport | [llama-server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server)、[cpp-httplib](https://github.com/yhirose/cpp-httplib)、[stb](https://github.com/nothings/stb) | 原生健康／多模态接口、内存 JPEG、顺序可选 HTTP 投递 |
 | streamer / api | [cpp-httplib](https://github.com/yhirose/cpp-httplib)、[MediaMTX](https://github.com/bluenviron/mediamtx) | 实时 REST／MJPEG；RTSP 通过 FFmpeg 管道推外部服务 |
 | common / tests | [nlohmann/json](https://github.com/nlohmann/json)、[GoogleTest](https://github.com/google/googletest) | 统一 JSON，少量纯离线 GoogleTest + CTest |
 
-当前未引入或复制上游实现；依赖版本和许可随实现登记。FFmpeg 版本冻结时按[官方协议文档](https://ffmpeg.org/ffmpeg-protocols.html)核对 `rtsp_transport=tcp`、`rw_timeout`，及旧 `stimeout` 与所选版本 `timeout` 的适用性。LLM 请求沿用[原生服务契约](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)，不修改上游进程。
+当前未引入或复制上游实现；依赖版本和许可随实现登记。FFmpeg 版本冻结时已按[官方协议文档](https://ffmpeg.org/ffmpeg-protocols.html)核对：魔百盒运行的 FFmpeg 7.1.1 使用微秒单位的 `rw_timeout`，当前固定 3,000,000 µs（3 秒），不使用旧 `stimeout`；`rtsp_transport=tcp` 对本地文件同样传入，但仅对网络源生效。LLM 请求沿用[原生服务契约](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)，不修改上游进程。
 
 ## 6. 目录、业务归属与数据归属
 
@@ -124,9 +124,9 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 | `v0.3-nous`（神思） | 瞬时事件聚合、可选推理／存储投递、PC 存储服务实现与历史查询 |
 | `v1.0-vox`（神谕之声） | OSD、视频输出和 systemd 交付 |
 
-实时 MJPEG 仍只在观看或快照请求时编码，无请求时不编码；可选 RTSP 使用 `-preset ultrafast -tune zerolatency -b:v 500k`。Nous 的事件 JPEG 编码与实时 OSD 输出编码用途不同，不把两者混用。`src/main.cpp` 按 `config.streamer.mode` 装配输出：`mjpeg` 模式不创建推流子进程，保持按需 JPEG；`rtsp` 模式把可选 `RtspPusher` 注入 `StreamOutNode`，节点逐帧在独立缓冲生成 OSD，以 RGB24 投递有界写队列，共享采集帧保持只读。推流器启动失败（例如找不到 `ffmpeg`）只打印告警，流水线与 MJPEG 端点继续可用，不因此退出进程；停止时先停节点再回收推流进程，避免节点线程卡在编码器上。RTSP 地址、宽高与帧率分别取自 `config.streamer.rtsp_url` 和 `config.input`，真机 MediaMTX 联动仍待验收。后续验收需包含关闭上游／超时降级、队列丢旧与释放、优雅退出及 RSS **<150MB**；魔百盒空载验收实测 RSS 28.4MB、SIGTERM 约 1 秒退出、10 分钟丢帧 0，指标以实测记录为准。
+实时 MJPEG 仍只在观看或快照请求时编码，无请求时不编码；可选 RTSP 使用 `-preset ultrafast -tune zerolatency -b:v 500k`。Nous 的事件 JPEG 编码与实时 OSD 输出编码用途不同，不把两者混用。`src/main.cpp` 按 `config.streamer.mode` 装配输出：`mjpeg` 模式不创建推流子进程，保持按需 JPEG；`rtsp` 模式把可选 `RtspPusher` 注入 `StreamOutNode`，节点逐帧在独立缓冲生成 OSD，以 RGB24 投递有界写队列，共享采集帧保持只读。推流器启动失败（例如找不到 `ffmpeg`）只打印告警，流水线与 MJPEG 端点继续可用，不因此退出进程；停止时先停节点再回收推流进程，避免节点线程卡在编码器上。RTSP 地址、宽高与帧率分别取自 `config.streamer.rtsp_url` 和 `config.input`；本地 MediaMTX + FFmpeg 模拟源取流已验收，盒端 RTSP 推流输出仍待验收。当前推流命令已对 rawvideo 输入显式指定 `-pix_fmt rgb24`，但未对输出指定 `-pix_fmt yuv420p`，也未加 `-rtsp_transport tcp`；联调时需核对像素格式与传输方式。后续验收需包含关闭上游／超时降级、队列丢旧与释放、优雅退出及 RSS **<150MB**；魔百盒空载验收实测 RSS 28.4MB、SIGTERM 约 1 秒退出、10 分钟丢帧 0，指标以实测记录为准。
 
-初始化和核心框架已交付：`edge_core` 的节点、队列与源分类，以及 `edge_common` 的配置和指标已实现并有本地离线测试。`edge_capture` 的 FFmpeg 拉流、RGB24 解码、EOF 循环、断线重连、截帧和仅视频 remux 录片，以及 `edge_api` 的实时控制端点和运行入口也已实现；`test_capture` 覆盖本地解码、循环与非法源，`test_api` 用伪 `SourceControl` 覆盖健康探针与切源。`edge_detector` 的 MotionNode／NcnnDetectorNode、`edge_streamer` 的 OSD／RTSP 与 `edge_transport` 的 JPEG／Base64、`GenAiWorker` 及 `EventTrackerNode` 已实现并由 `src/main.cpp` 装配为 CaptureNode → MotionNode → NcnnDetectorNode → EventTrackerNode → StreamOutNode 的端到端流水线，API 已接入快照与 MJPEG 回调，推流器已按 `config.streamer` 装配为 MJPEG／RTSP 双模并接入优雅退出；PC 存储服务已实现，部署脚本与模板已就绪；魔百盒本地视频、手机流（经 PC 中继）与 LLM 联动的真机验收已完成，MediaMTX 与日志采集仍待验收。后续变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；静态检查和工作流定义不等于业务构建或运行验收。
+初始化和核心框架已交付：`edge_core` 的节点、队列与源分类，以及 `edge_common` 的配置和指标已实现并有本地离线测试。`edge_capture` 的 FFmpeg 拉流、RGB24 解码、EOF 循环、断线重连、截帧和仅视频 remux 录片，以及 `edge_api` 的实时控制端点和运行入口也已实现；`test_capture` 覆盖本地解码、循环与非法源，`test_api` 用伪 `SourceControl` 覆盖健康探针与切源。`edge_detector` 的 MotionNode／NcnnDetectorNode、`edge_streamer` 的 OSD／RTSP 与 `edge_transport` 的 JPEG／Base64、`GenAiWorker` 及 `EventTrackerNode` 已实现并由 `src/main.cpp` 装配为 CaptureNode → MotionNode → NcnnDetectorNode → EventTrackerNode → StreamOutNode 的端到端流水线，API 已接入快照与 MJPEG 回调，推流器已按 `config.streamer` 装配为 MJPEG／RTSP 双模并接入优雅退出；PC 存储服务已实现，部署脚本与模板已就绪；魔百盒本地视频、手机流（经 PC 中继）与 LLM 联动的真机验收已完成，本地 MediaMTX 模拟源取流也已验收；盒端 RTSP 推流输出与日志采集仍待验收。后续变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；静态检查和工作流定义不等于业务构建或运行验收。
 
 ## 8. 模块构建与链接边界（PATCH-005）
 

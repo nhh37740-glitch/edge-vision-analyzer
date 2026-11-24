@@ -51,6 +51,18 @@
 - 根因：部署脚本把公开模板覆盖为 `config.local.json`，采集节点按间隔持续写盘；640×480 每 2 秒一张约 860MB/天，与无状态边缘契约冲突。
 - 解决命令：模板与结构默认值改为 0，盒上配置改为 0 并清空 `snapshots/`，重启后 health 200；目标机已有配置默认保留，覆盖需 `EDGE_CONFIG_FORCE=1`。
 
+- 现象与命令：2026-11-24 联想 PC 运行 MediaMTX v1.21.4 并由 FFmpeg 推送 `rtsp://127.0.0.1:8554/cam` 后，PC 本机可拉流，盒端访问 `10.10.10.1:8554` 超时。
+- 根因：Windows 防火墙已存在 `mediamtx.exe` 入站阻止规则；回环测试不经过入站检查，不能证明局域网可达。
+- 解决命令：在 Windows 防火墙删除或禁用 `mediamtx.exe` 的入站阻止规则，再允许 TCP 8554 入站（9997 仅供 PC 本机查询 API）。本次无管理员权限，临时用 PC 本机 TCP 中继 `18554→8554`；盒端 60 秒采集 14.1 FPS、丢帧 0。
+
+- 现象与命令：Issue #130 允许 ONVIF 或 RTSP 模拟源；MediaMTX v1.21.4 不提供 ONVIF 发现或 Profile S。
+- 根因：MediaMTX 是 RTSP／RTMP／HLS 等传输服务，不是 ONVIF 相机实现。
+- 解决命令：本轮只验收 RTSP 取流；ONVIF 如确需支持应另开 Issue，不把 RTSP 验收写成 ONVIF 已支持。
+
+- 现象与命令：FFmpeg 以 `-c:v copy` 循环推 MP4 到 MediaMTX 后，盒端解码持续报 `co located POCs unavailable` 与 `mmco: unref short failure`。
+- 根因：带 B 帧的 MP4 原包经 RTSP 重封装后时间戳／参考帧不完整，循环点尤易触发。
+- 解决命令：改为 `-r 15 -c:v libx264 -preset ultrafast -tune zerolatency -g 15 -pix_fmt yuv420p` 重新编码后再推流，解码报错消失、采集 14.1 FPS。
+
 ## 常驻提示（PATCH-009）
 
 ### 魔百盒热管理

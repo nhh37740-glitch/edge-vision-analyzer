@@ -2,7 +2,7 @@
 
 面向 2GB Armbian 魔百盒的无状态视频分析方案。魔百盒处理手机有线流、运动过滤、目标检测和实时推流，RSS 目标小于 150 MB。联想 PC 提供多模态推理，并独立保存历史事件和未加 OSD 的 JPEG 抓拍。
 
-**当前状态（北京时间 2026-11-24）**：C++17 构建骨架、aarch64 交叉编译工具链、v0.1 核心框架、FFmpeg 采集模块与边缘 REST 控制面已落地（Issue #1–#5），v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）、NcnnDetectorNode（NCNN 目标检测与 NMS）与检测量化选型（fp32/fp16/int8）模块已实现，v0.3 的 JPEG／Base64 编码、GenAiWorker 异步投递与 EventTrackerNode 事件聚合也已实现，并统一接入 `src/main.cpp` 的端到端流水线与优雅退出。核心节点、有界队列、配置指标、RGB24 解码、EOF 循环、断线重连、截帧、remux 录片，以及 health、stats、config（含 PATCH 原子热更新）、source-switch、snapshot、stream 端点已实现；控制面已在本机回环验证，离线 CTest 覆盖核心、采集、控制面、帧差漏斗、检测后处理与选型、推流与 transport。推流输出已按 `config.streamer.mode` 装配：`mjpeg` 不启动外部进程，`rtsp` 时 StreamOutNode 对每帧生成独立 OSD 并以 RGB24 推入 RtspPusher 的 FFmpeg 管道；启动失败只告警，MJPEG 端点与流水线继续运行。事件聚合、GenAiWorker、PC 云存储（FastAPI + SQLite）、health 上游探活与 PATCH config 原子热更新已实现；部署脚本与模板已就绪。2026-11-24 已在魔百盒完成离线原生构建、systemd 部署与本地视频端到端验收（health、带 OSD 快照、MJPEG、PATCH、SIGTERM 优雅退出），盒到 PC 云存储的事件与图片投递也已验收；手机 IP Webcam 流（经 PC 中继）与 llama-server LLM 联动已验收；RTSP／MediaMTX 与 Fluent Bit 仍待验收。
+**当前状态（北京时间 2026-11-24）**：C++17 构建骨架、aarch64 交叉编译工具链、v0.1 核心框架、FFmpeg 采集模块与边缘 REST 控制面已落地（Issue #1–#5），v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）、NcnnDetectorNode（NCNN 目标检测与 NMS）与检测量化选型（fp32/fp16/int8）模块已实现，v0.3 的 JPEG／Base64 编码、GenAiWorker 异步投递与 EventTrackerNode 事件聚合也已实现，并统一接入 `src/main.cpp` 的端到端流水线与优雅退出。核心节点、有界队列、配置指标、RGB24 解码、EOF 循环、断线重连、截帧、remux 录片，以及 health、stats、config（含 PATCH 原子热更新）、source-switch、snapshot、stream 端点已实现；控制面已在本机回环验证，离线 CTest 覆盖核心、采集、控制面、帧差漏斗、检测后处理与选型、推流与 transport。推流输出已按 `config.streamer.mode` 装配：`mjpeg` 不启动外部进程，`rtsp` 时 StreamOutNode 对每帧生成独立 OSD 并以 RGB24 推入 RtspPusher 的 FFmpeg 管道；启动失败只告警，MJPEG 端点与流水线继续运行。事件聚合、GenAiWorker、PC 云存储（FastAPI + SQLite）、health 上游探活与 PATCH config 原子热更新已实现；部署脚本与模板已就绪。2026-11-24 已在魔百盒完成离线原生构建、systemd 部署与本地视频端到端验收（health、带 OSD 快照、MJPEG、PATCH、SIGTERM 优雅退出），盒到 PC 云存储的事件与图片投递也已验收；手机 IP Webcam 流（经 PC 中继）与 llama-server LLM 联动已验收；联想侧 MediaMTX + FFmpeg 本地 RTSP 模拟源及盒端取流已验收；盒端 RTSP 推流输出、Fluent Bit 与日志采集仍待验收。
 
 ## 接力入口
 
@@ -42,6 +42,7 @@
 | `v1.0-vox` | 14.9 | 0.1 | 待实测 | 28.4 | 40.6 |
 | 手机流 | 13.8 | 2.7 | 待实测 | 29.1 | 43.3 |
 | LLM 联动 | 14.9 | 14.1 | 待实测 | 27.9 | 46.9 |
+| RTSP 模拟源 | 14.1 | 0.1 | 待实测 | 25.1 | 39.6 |
 
 详细硬件、实际运行参数、压测工况与优化收益见 [实测台账](docs/benchmarks.md)。每个里程碑发版前按实测结果同步摘要。
 
@@ -53,7 +54,7 @@ cd edge-vision-analyzer
 git switch feature/capture
 ```
 
-在阅读冷启动文件并收到后续开发指令后，按 Issue 接续开发；v0.1–v0.3 与 v1.0 的主要模块已接入运行入口并在魔百盒完成本地视频与 PC 存储联动验收，手机流与 LLM 联动已验收；RTSP／MediaMTX 与日志采集仍待验收。预建任务见 [GitHub Issues](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues)，阶段归档见 [Milestones](https://github.com/nhh37740-glitch/edge-vision-analyzer/milestones)。
+在阅读冷启动文件并收到后续开发指令后，按 Issue 接续开发；v0.1–v0.3 与 v1.0 的主要模块已接入运行入口并在魔百盒完成本地视频与 PC 存储联动验收，手机流、LLM 联动与本地 RTSP 模拟源取流已验收；盒端 RTSP 推流输出、Fluent Bit 与日志采集仍待验收。预建任务见 [GitHub Issues](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues)，阶段归档见 [Milestones](https://github.com/nhh37740-glitch/edge-vision-analyzer/milestones)。
 
 构建设计：联想 x86_64 Linux 支持本机离线测试构建，并交叉编译 aarch64 运行产物；魔百盒只运行，不编译大型依赖。根 [CMakeLists.txt](CMakeLists.txt) 已启用 C++17，当前可构建 `edge_core`、`edge_common`、`edge_capture`、`edge_detector`、`edge_streamer`、`edge_transport`、`edge_api`、`edge-vision-analyzer`、`test_build`、`test_core`、`test_capture`、`test_detector`、`test_streamer`、`test_transport` 与 `test_api`，其余静态库随里程碑加入。`cmake/aarch64-toolchain.cmake` 使用 `aarch64-linux-gnu-g++`。
 
@@ -84,9 +85,37 @@ bash scripts/start_pc_services.sh
 
 脚本把日志写入 `mktemp -d` 生成的临时目录，就绪时打印两个 PID 与日志路径；只有 `http://127.0.0.1:8080/health` 与 `http://127.0.0.1:8090/health` 都通过才报告就绪。缺少 `llama-server`、`uvicorn` 或 `curl` 时提示安装方式并返回非零。启动或探活失败时打印对应日志尾部，并提示用 `kill <PID>` 停止已启动的进程。脚本不下载模型、不读取 `config/config.local.json`，日志位于临时目录且不提交。
 
+## 本地 RTSP 相机模拟器
+
+手机 IP Webcam 会随锁屏停止监听，不能作为无人值守验收源。联想 PC 可用 [MediaMTX](https://github.com/bluenviron/mediamtx) v1.21.4 与 FFmpeg 提供确定性的 RTSP 源；MediaMTX 不含 ONVIF 发现或 Profile S，本次只验收 RTSP 取流。实测命令如下，素材与二进制不入库：
+
+```yaml
+# mediamtx.local.yml
+api: yes
+apiAddress: :9997
+rtspAddress: :8554
+paths:
+  cam:
+```
+
+```sh
+# 1. 启动 MediaMTX（默认 RTSP :8554、API :9997；最小配置启用 API 与 cam path）
+mediamtx mediamtx.local.yml
+# 2. 新环境可先生成 30 秒测试图；它不含人物，只验证取流、快照与 MJPEG
+ffmpeg -f lavfi -i testsrc2=size=640x480:rate=15 -t 30 -c:v libx264 -pix_fmt yuv420p assets/demo_clip_30s.mp4
+# 3. 循环推送；重编码避免 B 帧与循环点造成的解码错误、首帧延迟
+ffmpeg -re -stream_loop -1 -i assets/demo_clip_30s.mp4 -an -r 15 \
+  -c:v libx264 -preset ultrafast -tune zerolatency -g 15 -pix_fmt yuv420p -b:v 800k \
+  -f rtsp -rtsp_transport tcp rtsp://127.0.0.1:8554/cam
+# 4. 盒端 input.source 指向 rtsp://<联想 LAN IP>:8554/cam 后重启服务；以下 curl 在盒端执行
+curl -s http://127.0.0.1:8081/api/v1/stats
+```
+
+Windows 首次监听会弹防火墙确认；若盒端 TCP 8554 超时而 PC 本机回环可达，说明入站仍被拦截，需删除或禁用 `mediamtx.exe` 的阻止规则并放行 TCP 8554（9997 仅供 PC 本机查询 MediaMTX API），或临时经 PC TCP 中继转发。2026-11-24 实测中 MediaMTX 命中已有入站阻止规则；盒端 `input.source` 临时改为 `rtsp://10.10.10.1:18554/cam`，PC 上运行 `10.10.10.1:18554 → 127.0.0.1:8554` 的临时 TCP 转发后完成 60 秒验收。回环可达不能代替局域网验收。`GET /api/v1/stats` 实测 `capture_fps` 14.1、`dropped_frames` 0，快照 640×480、MJPEG 流头为 `multipart/x-mixed-replace`。与真实 IP 相机相比，该模拟源没有 ONVIF 发现、相机鉴权和相机端编码差异。
+
 ## 魔百盒部署（脚本与模板已就绪；2026-11-24 完成首次真机验收）
 
-`scripts/deploy_to_box.sh` 按“对时 → 打印系统与库版本 → 发包 → 重启 → 探活 → 输出最近 20 行日志”执行；任一步失败返回非零并打印 `journalctl -u "$SERVICE" -n 20 --no-pager`。本次部署按相同步骤手工执行；脚本直接覆盖运行中可执行文件的问题已由 Issue #117 修复，修复后在魔百盒复跑通过。手机流与 LLM 联动已验收；RTSP 与 Fluent Bit 仍未验收。
+`scripts/deploy_to_box.sh` 按“对时 → 打印系统与库版本 → 发包 → 重启 → 探活 → 输出最近 20 行日志”执行；任一步失败返回非零并打印 `journalctl -u "$SERVICE" -n 20 --no-pager`。本次部署按相同步骤手工执行；脚本直接覆盖运行中可执行文件的问题已由 Issue #117 修复，修复后在魔百盒复跑通过。手机流、LLM 联动与本地 RTSP 模拟源取流已验收；盒端 RTSP 推流输出、Fluent Bit 与日志采集仍未验收。
 
 盒到 PC 云存储联动另行验证：盒端 `storage.endpoint` 指向联想 PC `10.10.10.1:8090`，health 显示 `storage: reachable`；PATCH 将 MAD 临时改为 0.0 后，PC 收到事件 `evt_0_1`（person 0.817）与 18,648 字节 JPEG，查询与图片读取均返回 200。LLM 摘要仍关闭，事件持续在场未结束，冷却与第二条事件未覆盖。
 

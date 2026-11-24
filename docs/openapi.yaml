@@ -6,13 +6,13 @@ info:
     paths中。
 tags:
 - name: v0.1-oculus
-  description: 采集与基础控制面，已实现；2026-11-24 在魔百盒完成本地视频真机验收，手机流仍待验收。degraded 仍只在 CaptureNode 失败时出现。
+  description: 采集与基础控制面，已实现；2026-11-24 在魔百盒完成本地视频与本地 RTSP 模拟源真机验收，手机流与 LLM 联动已验收。degraded 仍只在 CaptureNode 失败时出现。
 - name: v0.2-discern
   description: 检测与 PATCH config 原子热更新已实现并接入运行入口；魔百盒本地视频验收完成。
 - name: v0.3-nous
-  description: 事件聚合与异步语义分析已实现并接入运行入口；云存储服务由离线 pytest 覆盖，盒到 PC 的 health、事件与图片投递已真机验收，LLM 联动仍待验收。
+  description: 事件聚合与异步语义分析已实现并接入运行入口；云存储服务由离线 pytest 覆盖，盒到 PC 的 health、事件与图片投递已真机验收，LLM 联动已验收；事件冷却与第二条事件未覆盖。
 - name: v1.0-vox
-  description: OSD、快照与 MJPEG 已在魔百盒验收；RTSP／MediaMTX、日志采集与 Fluent Bit 待验收。
+  description: OSD、快照与 MJPEG 已在魔百盒验收；本地 RTSP 模拟源取流已验收；盒端 RTSP 推流输出、日志采集与 Fluent Bit 待验收。
 paths:
   /api/v1/health:
     get:
