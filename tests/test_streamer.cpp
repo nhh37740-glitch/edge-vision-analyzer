@@ -341,7 +341,9 @@ TEST(RtspPusher, RtspCommandContainsRequiredArguments) {
   EXPECT_TRUE(has_pair(args, "-preset", "ultrafast"));
   EXPECT_TRUE(has_pair(args, "-tune", "zerolatency"));
   EXPECT_TRUE(has_pair(args, "-b:v", "500k"));
+  EXPECT_TRUE(has_pair(args, "-pix_fmt", "yuv420p"));
   EXPECT_TRUE(has_pair(args, "-f", "rtsp"));
+  EXPECT_TRUE(has_pair(args, "-rtsp_transport", "tcp"));
   EXPECT_EQ(args.back(), "rtsp://127.0.0.1:8554/edge");
   EXPECT_EQ(sink->wait_calls, 1);
   EXPECT_EQ(sink->active.load(), 0);

@@ -281,8 +281,12 @@ std::vector<std::string> RtspPusher::build_command(
           "zerolatency",
           "-b:v",
           "500k",
+          "-pix_fmt",
+          "yuv420p",
           "-f",
           "rtsp",
+          "-rtsp_transport",
+          "tcp",
           rtsp_url};
 }
 
