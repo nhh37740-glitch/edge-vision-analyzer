@@ -1,0 +1,29 @@
+{
+  "total": 1,
+  "limit": 1,
+  "offset": 0,
+  "events": [
+    {
+      "event_id": "demo_caviar_frame150_1795531452594",
+      "frame_id": 150,
+      "timestamp_ms": 1795531452594,
+      "top_label": "person",
+      "top_score": 0.6609150767326355,
+      "targets": [
+        {
+          "class_id": 0,
+          "label": "person",
+          "score": 0.6609150767326355,
+          "x": 0.4823644757270813,
+          "y": 0.36795666813850403,
+          "w": 0.1350591629743576,
+          "h": 0.5472526550292969
+        }
+      ],
+      "llm_summary": "一个人在走廊上行走，另一个人在远处交谈。",
+      "llm_latency_ms": 10435.46,
+      "image_url": "/api/v1/images/2026-11-24/demo_caviar_frame150_1795531452594.jpg",
+      "created_at": "2026-11-24 14:44:12"
+    }
+  ]
+}

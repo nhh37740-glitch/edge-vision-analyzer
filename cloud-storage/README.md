@@ -2,6 +2,8 @@
 
 联想 PC 上的独立进程，使用 FastAPI + SQLite 实现，默认监听 `0.0.0.0:8090`。它接收魔百盒异步投递的干净 JPEG、结构化事件与 Fluent Bit 日志，提供历史分页查询和图片读取。服务与魔百盒的 C++ 构建、ARM64 交叉编译完全解耦。接口语义见 [API 契约](../docs/api.md)，机器契约见 [OpenAPI](../docs/openapi.yaml)。
 
+公开图片、真实检测框、中文摘要及查询命令见[云存储查询示例](../docs/examples/cloud-storage/README.md)。示例采用公开 CAVIAR 素材和隔离存储，明确区分 PC 演示投递与魔百盒自动流水线。
+
 ## 启动与运行
 
 需要 Python 3.10 或更高版本。为避免把虚拟环境放进仓库，可在家目录创建：
