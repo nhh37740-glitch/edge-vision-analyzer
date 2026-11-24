@@ -1,12 +1,12 @@
 # Edge Vision Analyzer — 里程碑、内部契约与验收
 
-状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，v0.2 的帧差漏斗 MotionNode、NcnnDetectorNode 与检测量化选型模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递、`EventTrackerNode` 事件聚合与 LLM 量化选型已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现，上述模块已由 `src/main.cpp` 接入端到端运行入口；PC 云存储服务已实现，health 上游探活已实现，部署脚本与模板已就绪，PATCH config 原子热更新已实现；离线单测已覆盖上述模块。2026-11-24 已在魔百盒完成本地视频真机部署与盒到 PC 云存储投递验收，手机流、LLM 联动、RTSP／MediaMTX 与日志采集仍待验收。更新日期：2026-11-24（北京时间）。
+状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，v0.2 的帧差漏斗 MotionNode、NcnnDetectorNode 与检测量化选型模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递、`EventTrackerNode` 事件聚合与 LLM 量化选型已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现，上述模块已由 `src/main.cpp` 接入端到端运行入口；PC 云存储服务已实现，health 上游探活已实现，部署脚本与模板已就绪，PATCH config 原子热更新已实现；离线单测已覆盖上述模块。2026-11-24 已在魔百盒完成本地视频真机部署、盒到 PC 云存储投递、手机流与 LLM 联动验收；RTSP／MediaMTX 与日志采集仍待验收。更新日期：2026-11-24（北京时间）。
 
 本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-009。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.example.json](../config/config.example.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
 
 ## 1. 当前执行边界与后续启动条件
 
-当前已实现 C++17 构建骨架、aarch64 工具链、`src/core`／`src/common` 的节点框架、配置与指标，`src/capture` 的 FFmpeg 拉流、RGB24 解码、截帧和仅视频 remux 录片，`src/streamer` 的 OSD 标注与按需 JPEG／MJPEG／RTSP 输出，`src/transport` 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合，以及 `src/api` 的 health、stats、config 读取与 PATCH 原子热更新、source-switch 控制面；上述模块均有离线测试覆盖，并已由 `src/main.cpp` 装配为端到端运行入口。PC 存储服务已实现，部署脚本与模板已就绪；魔百盒已用本地视频完成首次真机部署验收，并向 PC 存储投递 1 条事件与图片；手机流、LLM 联动、RTSP／MediaMTX 与日志采集仍待验收。所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
+当前已实现 C++17 构建骨架、aarch64 工具链、`src/core`／`src/common` 的节点框架、配置与指标，`src/capture` 的 FFmpeg 拉流、RGB24 解码、截帧和仅视频 remux 录片，`src/streamer` 的 OSD 标注与按需 JPEG／MJPEG／RTSP 输出，`src/transport` 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合，以及 `src/api` 的 health、stats、config 读取与 PATCH 原子热更新、source-switch 控制面；上述模块均有离线测试覆盖，并已由 `src/main.cpp` 装配为端到端运行入口。PC 存储服务已实现，部署脚本与模板已就绪；魔百盒已用本地视频完成首次真机部署验收，并向 PC 存储投递事件与图片；手机流与 LLM 联动已验收，RTSP／MediaMTX 与日志采集仍待验收。所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
 当前仓库包含协作模板、GitHub Actions、根 [CMakeLists.txt](../CMakeLists.txt) 的 C++17 构建骨架和 `cmake/aarch64-toolchain.cmake`；Issue #1 已使 `edge_core` 与 `test_build` 可构建，Issue #2 增加 `edge_common` 与 `test_core`，Issue #3 增加 `edge_capture`，Issue #4 增加 `edge_api` 与运行入口，Issue #5 增加 `test_capture` 与 `test_api` 离线用例；其余目标随 `v0.1-oculus` 的各项 Issue 加入。FastAPI `server.py` 已在 `v0.3-nous` 实现。接手 Agent 在收到开发指令后实施业务，所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
@@ -260,9 +260,9 @@ class BaseNode {
 
 | 里程碑／规划发版 Tag | 感官意象 | 功能目标 | 当前状态 |
 | --- | --- | --- | --- |
-| `v0.1-oculus` | Oculus，神目／视觉 | 接入手机有线流和本地循环视频，完成采集与基础控制面 | 已实现；魔百盒本地视频与控制面真机验收完成，手机流阶段 A 待执行 |
+| `v0.1-oculus` | Oculus，神目／视觉 | 接入手机有线流和本地循环视频，完成采集与基础控制面 | 已实现；魔百盒本地视频、控制面与手机流（经 PC 中继）真机验收完成；设备端截帧／录片与交叉编译待补 |
 | `v0.2-discern` | Discern，洞察／明辨 | 帧差漏斗与 NCNN 端侧目标检测 | 检测与量化选型、PATCH config 热更新已实现；魔百盒本地视频真机验收完成 |
-| `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 事件聚合、异步投递、LLM 量化选型与 PC 云存储已实现；盒到 PC 存储投递（1 条事件与 JPEG）已真机验收，LLM 联动待验收 |
+| `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 事件聚合、异步投递、LLM 量化选型与 PC 云存储已实现；盒到 PC 存储投递与 LLM 联动（中文摘要 7744 ms）已真机验收；冷却与第二条事件未覆盖 |
 | `v1.0-vox` | Vox，神谕之声／宣示 | OSD、MJPEG／RTSP、systemd 守护交付 | OSD、快照、MJPEG 与 systemd 已在魔百盒验收；RTSP／MediaMTX 与日志采集待验收 |
 
 验收完成后按 [AGENTS.md](../AGENTS.md) 发布。任一 `v*` Tag 都要求 x86_64 构建及 CTest、云存储离线 pytest、aarch64 构建及打包。打 Tag 前确认云存储已有可运行测试、`deploy/edge-vision.service` 模板已在目标机验收，且 CMake 可安装 `bin/edge-vision-analyzer`。这是首个 Release 同样适用的前置条件。
@@ -277,7 +277,7 @@ class BaseNode {
 - `src/capture/capture_node.hpp` / `.cpp`、`frame_dumper.hpp` / `.cpp`：FFmpeg 拉流、本地循环、仅视频 remux 录片与按间隔保存 JPEG。
 - `src/main.cpp` 已实现最小采集/控制面运行入口与 `--record-clip`／`--duration` 录片命令行装配；`v1.0-vox` 再完善完整流水线组装与交付。
 - `src/api/api_server.hpp` / `.cpp`：挂载 `GET /api/v1/health`、`GET /api/v1/stats`、`GET /api/v1/config`、`POST /api/v1/source/switch`。
-- `tests/test_capture.cpp`（当前 2 个用例）、`tests/test_api.cpp` 与极小离线 fixture；本机已构建并运行离线测试，Issue #51 补充采集用例。目标机已用离线原生构建完成本地视频验收；aarch64 交叉编译与手机流阶段 A 验收待补。
+- `tests/test_capture.cpp`（当前 2 个用例）、`tests/test_api.cpp` 与极小离线 fixture；本机已构建并运行离线测试，Issue #51 补充采集用例。目标机已用离线原生构建完成本地视频与手机流验收；aarch64 交叉编译与设备端截帧／录片待补。
 
 **内部架构：**
 
@@ -295,7 +295,7 @@ class BaseNode {
 
 **阶段 A 真机验收：**
 
-在联想宿主机完成 ARM64 交叉编译；经单独授权部署到魔百盒后，成功拉取手机 IP Webcam 流，按配置保存 `.jpg`，录制含静止与人物运动的 `assets/demo_clip.mp4`，再切换为该视频稳定循环。本机 x86_64 构建与离线测试已完成；2026-11-24 的首次真机验收因目标机无外网且缺少 aarch64 sysroot，改用盒上离线原生构建，并以本地 `assets/demo_clip_30s.mp4` 循环完成部署、控制面、检测、OSD、MJPEG 与优雅退出验收。手机 IP Webcam 的 `/shot.jpg` 与 `/video` 均超时，因此 ARM64 交叉编译、手机流与设备端截帧／录片仍待补。编译通过、部署完成、现场通路验收分别记录，不能混写为“上线可用”。
+在联想宿主机完成 ARM64 交叉编译；经单独授权部署到魔百盒后，成功拉取手机 IP Webcam 流，按配置保存 `.jpg`，录制含静止与人物运动的 `assets/demo_clip.mp4`，再切换为该视频稳定循环。本机 x86_64 构建与离线测试已完成；2026-11-24 的首次真机验收因目标机无外网且缺少 aarch64 sysroot，改用盒上离线原生构建，并以本地 `assets/demo_clip_30s.mp4` 循环完成部署、控制面、检测、OSD、MJPEG 与优雅退出验收。同日 11:50–12:07 手机 IP Webcam 的 `/shot.jpg` 与 `/video` 恢复可用，盒经 PC TCP 中继完成 60 秒拉流验收（13.8 FPS、丢帧 0）；随后手机端服务停止。ARM64 交叉编译与设备端截帧／录片仍待补。编译通过、部署完成、现场通路验收分别记录，不能混写为“上线可用”。
 
 ### 4.2 `v0.2-discern` — 帧差漏斗与 NCNN 端侧检测
 
