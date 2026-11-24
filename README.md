@@ -80,7 +80,7 @@ cmake --install build-arm64 --prefix staging
 
 本机构建基线（ubuntu-24.04／MSYS2 UCRT64）：CMake 3.31.6、Ninja 1.13.2、GCC 13.3.0、GoogleTest 1.14.0；FFmpeg 库版本为 libavformat 60.16.100、libavcodec 60.31.102、libavutil 58.29.100、libswscale 7.5.100；NCNN 固定 Release Tag `20261020`（BSD-3-Clause），由 CMake FetchContent 首次配置时下载并编译。常规 PR 的 `ci-gate` 不运行 C++ 构建，C++ 变更在提交前本地完成构建与 CTest；Release 工作流的 `workflow_dispatch` 手动入口和 `v*` Tag 均执行完整测试、aarch64 构建与打包，只有 Tag 触发公开发布。测试不下载模型、不等待真实设备或推理。
 
-Issue #144 已补充运行库打包逻辑，尚未完成 runner 交叉构建、离线盒端运行和发版验收。本轮联想为 Windows／MSYS2，未安装可用 WSL/Linux 交叉环境；本机 native 构建与 8 个 CTest 已通过（并行 1.94 秒），ARM64 产物需通过上述 Linux 环境或 GitHub runner 构建。手动工作流只上传 `edge-vision-analyzer-arm64` artifact，不创建 Release；工作流须先能由默认分支识别，再选择含相应实现的分支运行。
+Issue #144 的[手动 Release 工作流](https://github.com/nhh37740-glitch/edge-vision-analyzer/actions/runs/45368104945)已于 2026-11-24 成功：Ubuntu runner 上 native 构建、9 个 CTest（8 个 C++ 目标与部署脚本测试，0.92 秒）、5 个 Python 用例（0.64 秒）、ARM64 交叉构建及运行库打包均通过，上传 `edge-vision-analyzer-arm64` artifact，公开发布步骤按设计跳过。本轮联想为 Windows／MSYS2，无可用 WSL/Linux 交叉环境；本机 native 的 8 个 CTest 已通过（并行 1.94 秒），不能将 runner 构建写成本机交叉编译。盒端新包加载、部署与正式 Tag／Release 仍待验收；当前目标网段有线连接断开，SSH 超时。证据与剩余步骤见[发行包验收台账](docs/benchmarks.md#arm64-发行包构建验收2026-11-24)。手动入口须先能由默认分支识别，再选择含相应实现的分支运行。
 
 ```sh
 gh workflow run release.yml --ref <含手动入口的分支>

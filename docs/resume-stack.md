@@ -23,7 +23,7 @@
 | 热管理（仅观测） | C | [踩坑记录](troubleshooting.md) 魔百盒热管理、[API](api.md) `soc_temp_c` | 写“记录 SoC 温度并识别无风扇热降频限制”，不写“温控调度” |
 | journald volatile 配置 | A | `deploy/journald-edge.conf`；2026-11-24 实机生效 `Storage=volatile`、`RuntimeMaxUse=20M`、`ForwardToSyslog=no`；[benchmarks](benchmarks.md) | 配置运行时 journal、归档文件限容并关闭向 syslog 转发；整机重启未验证 |
 | Fluent Bit／journald 采集 | A | Fluent Bit 5.2.0 与 `deploy/fluent-bit.conf`、`deploy/fluent-bit-limits.conf`；2026-11-24 基础链路、过滤与模拟投递失败后恢复通过；[benchmarks](benchmarks.md) | 用独立采集器将服务 journal 转发 PC 并查询 NDJSON；有限重试可丢日志，长时间运行未验证 |
-| aarch64 交叉编译与 Release | B | `cmake/aarch64-toolchain.cmake`、`.github/workflows/release.yml`；尚无 Release，盒端为离线原生构建 | 写“已配置交叉编译工作流”，不写“已发版” |
+| aarch64 交叉编译与 Release | B | `cmake/aarch64-toolchain.cmake`、`.github/workflows/release.yml`；[benchmarks](benchmarks.md#arm64-发行包构建验收2026-11-24) 记录手动 runner 构建／打包成功；新包盒端运行与正式 Release 未验收 | 写“已在 Ubuntu runner 交叉构建 ARM64 程序并打包运行库”，盒端部署与发版仍标待验收 |
 | 静态 FFmpeg CLI 推流 | A | `/usr/local/bin/ffmpeg` 7.0.2-static；提交 `4eac7a5` | 用静态 FFmpeg 将 OSD 帧编码为 H.264／yuv420p 并推 RTSP |
 | RTSP 取流／推流＋MediaMTX | A | 提交 `dcd7534`、`4eac7a5`；约 15 FPS | 搭建 MediaMTX＋FFmpeg 可重复源，完成盒端 RTSP 输入与输出验收 |
 | ONVIF | C | 提交 `fa2d8cb`；仅 go2rtc 模拟器 Device／Media 子集，`src/` 无 ONVIF 客户端 | 写“ONVIF 模拟器控制面联调”，不写“支持 ONVIF” |
@@ -33,7 +33,7 @@
 | GoogleTest／CTest | A | `tests/`，8 个 C++ 测试目标、65 个 `TEST` | 用 GoogleTest／CTest 建立离线回归，覆盖采集、检测、API 与推流 |
 | FastAPI＋SQLite 云存储 | A | `cloud-storage/server.py`、提交 `5ff610a`／`a16cdb5` | 用 FastAPI＋SQLite 接收事件、保存 JPEG 并提供历史查询 |
 | llama.cpp＋Qwen2-VL-2B Q4_K_M | A | 提交 `e7b1783`、[benchmarks](benchmarks.md) | 接入 llama.cpp 多模态推理；单次描述 7.744 s，视觉 token 调优 59.4→8.45 s |
-| GitHub Actions | A（PR 策略／Python）／B（C++ 发版） | `.github/workflows/ci.yml` 已运行；`release.yml` 未发版 | 写“PR 策略与 Python 检查”，C++／ARM 发版标为待验收 |
+| GitHub Actions | A（PR 策略／Python）／B（C++ 发版） | `ci.yml` 已运行；`release.yml` 手动 native／Python／ARM 构建及 artifact 上传成功，Tag 发布步骤未执行 | 写“PR 策略与手动构建打包”，正式 C++／ARM 发版标为待验收 |
 | 离线构建 | A | [踩坑记录](troubleshooting.md) 盒上原生构建条目 | 在无外网目标机上离线构建并部署静态依赖 |
 
 ## 3. 简历 bullet 草案

@@ -268,7 +268,7 @@ class BaseNode {
 
 验收完成后按 [AGENTS.md](../AGENTS.md) 发布。任一 `v*` Tag 都要求 x86_64 构建及 CTest、云存储离线 pytest、aarch64 构建及打包。打 Tag 前确认云存储已有可运行测试、`deploy/edge-vision.service` 模板已在目标机验收，且 CMake 可安装 `bin/edge-vision-analyzer`。这是首个 Release 同样适用的前置条件。
 
-Issue #144 已补充 `Release` 的 `workflow_dispatch` 入口，用相同构建与测试步骤生成 artifact，跳过公开发布；普通 PR 仍不运行 ARM 构建。打包逻辑收集非 glibc 动态依赖闭包、相对加载路径、包版本及许可证，目标为 noble／aarch64、glibc 2.39，内容见 [ARM64 离线发行包](../deploy/arm64-package.md)。当前只完成实现与联想 native 验证（8 个 CTest，通过，并行 1.94 秒），runner 交叉构建、盒端依赖解析／部署及 Tag 发版仍待执行，里程碑状态不据此升级。部署脚本不安装 `lib/`，须先停止服务安装同包库，并保留原配置、模型与当前使用的视频。回退材料仅保存在联想 PC；盒上验收后确认未再使用的上传归档、staging、deb、构建源码及备份副本须删除，只保留必要运行文件，清理结果仍待实际核验。
+Issue #144 已补充 `Release` 的 `workflow_dispatch` 入口，用相同构建与测试步骤生成 artifact，跳过公开发布；普通 PR 仍不运行 ARM 构建。打包逻辑收集非 glibc 动态依赖闭包、相对加载路径、包版本及许可证，目标为 noble／aarch64、glibc 2.39，内容见 [ARM64 离线发行包](../deploy/arm64-package.md)。联想 native 验证已通过（8 个 CTest，并行 1.94 秒）；2026-11-24 [手动 run 45368104945](https://github.com/nhh37740-glitch/edge-vision-analyzer/actions/runs/45368104945)在 Ubuntu runner 上完成 native 构建、9 个 CTest（0.92 秒）、5 个 Python 用例（0.64 秒）、ARM64 交叉构建及 artifact 上传，publish 按设计跳过。构建证据见[发行包验收台账](benchmarks.md#arm64-发行包构建验收2026-11-24)。当前目标网段有线连接断开、SSH 超时，盒端依赖解析／部署与正式 Tag 发版仍待执行，里程碑状态不据此升级。部署脚本不安装 `lib/`，须先停止服务安装同包库，并保留原配置、模型与当前使用的视频。回退材料仅保存在联想 PC；盒上验收后确认未再使用的上传归档、staging、deb、构建源码及备份副本须删除，只保留必要运行文件，清理结果仍待实际核验。
 
 ### 4.1 `v0.1-oculus` — 视频采集、录片与基础控制面
 
