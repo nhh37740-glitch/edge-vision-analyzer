@@ -1,8 +1,8 @@
 # Edge Vision Analyzer — 双服务 API 契约
 
-状态：有效设计契约；`v0.1-oculus` 的 health、stats、config 读取与 source-switch，`v0.2-discern` 的 PATCH config 原子热更新，`v1.0-vox` 的 snapshot 与 stream，以及 `v0.3-nous` 的云存储 health/events/images/logs 均已实现。边缘端点已在本机回环与离线用例验证，云存储由离线 pytest 覆盖；2026-11-24 已在魔百盒完成 health/stats/config/snapshot/stream/PATCH/source-switch 的本地视频真机验收，手机流、启用 LLM／存储后的联动、RTSP 与日志采集仍待验收。维护责任：项目维护 Agent。更新日期：2026-11-24（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
+状态：有效设计契约；`v0.1-oculus` 的 health、stats、config 读取与 source-switch，`v0.2-discern` 的 PATCH config 原子热更新，`v1.0-vox` 的 snapshot 与 stream，以及 `v0.3-nous` 的云存储 health/events/images/logs 均已实现。边缘端点已在本机回环与离线用例验证，云存储由离线 pytest 覆盖；2026-11-24 已在魔百盒完成 health/stats/config/snapshot/stream/PATCH/source-switch 的本地视频真机验收，并验证盒到 PC 存储的 health、事件投递与图片读取；手机流、LLM 联动、RTSP 与日志采集仍待验收。维护责任：项目维护 Agent。更新日期：2026-11-24（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
 
-本轮只宣称上表所列端点在魔百盒本地视频工况的验收；手机流、启用 LLM／存储后的探活与写入、RTSP／MediaMTX 与 Fluent Bit 未验收。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
+本轮宣称上表所列端点在魔百盒本地视频工况的验收，以及盒到 PC 存储的事件与图片投递；手机流、LLM 联动、RTSP／MediaMTX 与 Fluent Bit 未验收。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
 
 ## 1. 两个服务的地址与职责
 
@@ -75,7 +75,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 }
 ```
 
-节点状态为 `starting/running/stopping/stopped/failed/not_enabled`。两个上游分别报告 `disabled/reachable/unreachable/unknown`。只有 `CaptureNode` 失败时边缘返回 200、`status: degraded`；LLM/Storage 的上游状态由后台探活线程维护：启用时立即探测一次并按约 2 秒间隔刷新，单次 `GET <base>/health` 的超时上限为 500ms，200 报告 `reachable`，连接失败、超时或非 200 报告 `unreachable`，首轮完成前短暂报告 `unknown`，关闭时报告 `disabled`。探活结果只缓存并更新对应字段，不改变边缘的 200 与 `status`；health 请求只读取缓存，不等待上游；探活只发送 GET，不触发真实多模态生成或存储写入。上述行为已在本机回环与离线用例验证；魔百盒真机已验证 health 200、`CaptureNode` 为 `running` 且 LLM／存储关闭时分别返回 `disabled`，启用上游后的 `reachable`／`unreachable` 探活仍待真机联调。
+节点状态为 `starting/running/stopping/stopped/failed/not_enabled`。两个上游分别报告 `disabled/reachable/unreachable/unknown`。只有 `CaptureNode` 失败时边缘返回 200、`status: degraded`；LLM/Storage 的上游状态由后台探活线程维护：启用时立即探测一次并按约 2 秒间隔刷新，单次 `GET <base>/health` 的超时上限为 500ms，200 报告 `reachable`，连接失败、超时或非 200 报告 `unreachable`，首轮完成前短暂报告 `unknown`，关闭时报告 `disabled`。探活结果只缓存并更新对应字段，不改变边缘的 200 与 `status`；health 请求只读取缓存，不等待上游；探活只发送 GET，不触发真实多模态生成或存储写入。上述行为已在本机回环与离线用例验证；魔百盒真机已验证 health 200、`CaptureNode` 为 `running`、关闭时的 `disabled`，以及 Storage 启用后指向 PC `:8090` 时返回 `reachable`。LLM 的 `reachable`／`unreachable` 探活仍待真机联调。
 
 `GET :8081/api/v1/stats` 成功示例：
 
@@ -172,6 +172,8 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 `GET :8081/api/v1/stream` 返回长连接，媒体类型为 `multipart/x-mixed-replace; boundary=frame`，每个部分以 `--frame` 分隔并包含 `Content-Type: image/jpeg`。发送流头前无可用帧可返回 503/JSON；开始流后不能插入 JSON 错误体，断线由客户端重连。慢客户端不得造成无界缓存。仅有活跃客户端或收到快照请求时进行 JPEG 编码。可选 RTSP 使用外部 MediaMTX 中继。魔百盒已用 3 秒客户端核验流头、`--frame` 分隔与 JPEG 数据，RTSP／MediaMTX 未验收。
 
 ## 5. PC 云存储 API
+
+魔百盒到联想 PC `:8090` 的真机联动已验收：health 返回 200，盒子投递的事件 `evt_0_1` 与 18,648 字节 JPEG 可按日期查询和读取；LLM 摘要关闭，事件冷却与多事件场景未覆盖。
 
 ### 5.1 健康检查
 
