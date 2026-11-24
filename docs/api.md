@@ -1,8 +1,8 @@
 # Edge Vision Analyzer — 双服务 API 契约
 
-状态：有效设计契约；`v0.1-oculus` 的 health、stats、config 读取与 source-switch，`v0.2-discern` 的 PATCH config 原子热更新，`v1.0-vox` 的 snapshot 与 stream，以及 `v0.3-nous` 的云存储 health/events/images/logs 均已实现。边缘端点已在本机回环与离线用例验证，云存储由离线 pytest 覆盖；2026-11-24 已在魔百盒完成 health/stats/config/snapshot/stream/PATCH/source-switch 的本地视频真机验收，并验证盒到 PC 存储的 health、事件投递与图片读取；手机流、LLM 联动与本地 RTSP 模拟源取流已验收；盒端 RTSP 推流输出与日志采集仍待验收。维护责任：项目维护 Agent。更新日期：2026-11-24（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
+状态：有效设计契约；`v0.1-oculus` 的 health、stats、config 读取与 source-switch，`v0.2-discern` 的 PATCH config 原子热更新，`v1.0-vox` 的 snapshot 与 stream，以及 `v0.3-nous` 的云存储 health/events/images/logs 均已实现。边缘端点已在本机回环与离线用例验证，云存储由离线 pytest 覆盖；2026-11-24 已在魔百盒完成 health/stats/config/snapshot/stream/PATCH/source-switch 的本地视频真机验收，并验证盒到 PC 存储的 health、事件投递与图片读取；手机流、LLM 联动与本地 RTSP 模拟源取流已验收；盒端 RTSP 推流输出已验收；日志采集仍待验收。维护责任：项目维护 Agent。更新日期：2026-11-24（北京时间）。依据：PATCH-001 至 PATCH-009；存储与历史查询以 PATCH-003 为准，配置与局域网服务范围以 PATCH-007 为准，日志接口以 PATCH-008 为准，SoC 温度观测与事件时间兜底以 PATCH-009 为准。
 
-本轮宣称上表所列端点在魔百盒本地视频与手机流工况的验收，以及盒到 PC 存储的事件、图片与 LLM 摘要投递；本地 MediaMTX + FFmpeg 模拟源 RTSP 取流已验证，盒端 RTSP 推流输出与 Fluent Bit 未验收。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
+本轮宣称上表所列端点在魔百盒本地视频与手机流工况的验收，以及盒到 PC 存储的事件、图片与 LLM 摘要投递；本地 MediaMTX + FFmpeg 模拟源 RTSP 取流已验证，盒端 RTSP 推流输出已验收；Fluent Bit 未验收。机器可读契约见 [openapi.yaml](openapi.yaml)，系统边界见 [architecture.md](architecture.md)，交付与离线验收见 [roadmap.md](roadmap.md)，开发和执行边界遵守 [AGENTS.md](../AGENTS.md)。公开配置模板见 [config/config.example.json](../config/config.example.json)，运行时使用被 Git 忽略的 `config/config.local.json`。PC 数据表契约见 [schema.sql](../cloud-storage/schema.sql)。
 
 ## 1. 两个服务的地址与职责
 
@@ -171,7 +171,7 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 
 `GET :8081/api/v1/snapshot.jpg` 返回最新实时 OSD JPEG，媒体类型 `image/jpeg`；尚无首帧返回 503/JSON。它是实时展示快照，不是历史干净抓拍。魔百盒真机已返回 640×480 JPEG，并在强制检测时显示 `person 0.71` 的 OSD 框；手机流验收时同样返回 640×480 JPEG，当次未逐帧检查 OSD 内容。
 
-`GET :8081/api/v1/stream` 返回长连接，媒体类型为 `multipart/x-mixed-replace; boundary=frame`，每个部分以 `--frame` 分隔并包含 `Content-Type: image/jpeg`。发送流头前无可用帧可返回 503/JSON；开始流后不能插入 JSON 错误体，断线由客户端重连。慢客户端不得造成无界缓存。仅有活跃客户端或收到快照请求时进行 JPEG 编码。可选 RTSP 使用外部 MediaMTX 中继。魔百盒已用 3 秒客户端核验流头、`--frame` 分隔与 JPEG 数据；本地 RTSP 模拟源取流已验证，盒端 RTSP 推流输出未验收。
+`GET :8081/api/v1/stream` 返回长连接，媒体类型为 `multipart/x-mixed-replace; boundary=frame`，每个部分以 `--frame` 分隔并包含 `Content-Type: image/jpeg`。发送流头前无可用帧可返回 503/JSON；开始流后不能插入 JSON 错误体，断线由客户端重连。慢客户端不得造成无界缓存。仅有活跃客户端或收到快照请求时进行 JPEG 编码。可选 RTSP 使用外部 MediaMTX 中继。魔百盒已用 3 秒客户端核验流头、`--frame` 分隔与 JPEG 数据；本地 RTSP 模拟源取流已验证，盒端 RTSP 推流输出已验证（H.264/yuv420p、15 FPS）。
 
 ## 5. PC 云存储 API
 
