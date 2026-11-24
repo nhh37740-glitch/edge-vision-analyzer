@@ -21,13 +21,13 @@ cat > "$TMP/bin/ssh" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >> "$SSH_LOG"
 case "$*" in
-  *config.local.json*)
+  *"test -f /opt/edge-vision-analyzer/config/config.local.json"*)
     state=${REMOTE_CONFIG_STATE:-missing}
-    [ "$state" = "error" ] && exit 255
     [ "$state" = "banner" ] && echo "banner line"
     case "$state" in
-      present|banner) echo EDGE_CONFIG_PRESENT ;;
-      missing) echo EDGE_CONFIG_MISSING ;;
+      present|banner) exit 0 ;;
+      missing) exit 1 ;;
+      *) exit 255 ;;
     esac
     ;;
 esac
@@ -37,7 +37,7 @@ chmod +x "$TMP/bin/scp" "$TMP/bin/ssh"
 
 CONFIG_TARGET="test-host:/opt/edge-vision-analyzer/config/config.local.json.new"
 BIN_TARGET="test-host:/opt/edge-vision-analyzer/bin/edge-vision-analyzer.new"
-CHECK_CMD='if [ -f /opt/edge-vision-analyzer/config/config.local.json ]'
+CHECK_CMD='test -f /opt/edge-vision-analyzer/config/config.local.json'
 
 fail() {
   echo "FAIL: $1" >&2

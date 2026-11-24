@@ -25,9 +25,9 @@ ssh "$HOST" '. /etc/os-release 2>/dev/null; echo "OS: ${PRETTY_NAME:-unknown}"; 
 echo "== 3/6 发送构建产物与配置 =="
 scp "$BIN" "$HOST:/opt/edge-vision-analyzer/bin/edge-vision-analyzer.new" || fail "scp 构建产物"
 ssh "$HOST" "mv -f /opt/edge-vision-analyzer/bin/edge-vision-analyzer.new /opt/edge-vision-analyzer/bin/edge-vision-analyzer && chmod 0755 /opt/edge-vision-analyzer/bin/edge-vision-analyzer" || fail "替换构建产物"
-REMOTE_CONFIG=$(ssh "$HOST" 'if [ -f /opt/edge-vision-analyzer/config/config.local.json ]; then echo EDGE_CONFIG_PRESENT; else echo EDGE_CONFIG_MISSING; fi') || fail "检查目标机配置"
+ssh "$HOST" "test -f /opt/edge-vision-analyzer/config/config.local.json"; REMOTE_CONFIG=$?
 case "$REMOTE_CONFIG" in
-  *EDGE_CONFIG_PRESENT*)
+  0)
     if [ "${EDGE_CONFIG_FORCE:-0}" = "1" ]; then
       install_config
       echo "已按 EDGE_CONFIG_FORCE=1 用模板覆盖目标机配置"
@@ -35,11 +35,11 @@ case "$REMOTE_CONFIG" in
       echo "目标机已有 config/config.local.json，保留现场配置；如需覆盖请设置 EDGE_CONFIG_FORCE=1"
     fi
     ;;
-  *EDGE_CONFIG_MISSING*)
+  1)
     install_config
     ;;
   *)
-    fail "无法判断目标机配置状态: $REMOTE_CONFIG"
+    fail "检查目标机配置（ssh 退出码 $REMOTE_CONFIG）"
     ;;
 esac
 echo "== 4/6 重启 $SERVICE =="
