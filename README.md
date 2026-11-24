@@ -43,6 +43,7 @@
 | 手机流 | 13.8 | 2.7 | 待实测 | 29.1 | 43.3 |
 | LLM 联动 | 14.9 | 14.1 | 待实测 | 27.9 | 46.9 |
 | RTSP 模拟源 | 14.1 | 0.1 | 待实测 | 25.1 | 39.6 |
+| CAVIAR 真实视频 | 14.2 | 14.2 | 待实测 | 25.4 | 45.6 |
 
 详细硬件、实际运行参数、压测工况与优化收益见 [实测台账](docs/benchmarks.md)。每个里程碑发版前按实测结果同步摘要。
 
@@ -112,6 +113,20 @@ curl -s http://127.0.0.1:8081/api/v1/stats
 ```
 
 Windows 首次监听会弹防火墙确认；若盒端 TCP 8554 超时而 PC 本机回环可达，说明入站仍被拦截，需删除或禁用 `mediamtx.exe` 的阻止规则并放行 TCP 8554（9997 仅供 PC 本机查询 MediaMTX API），或临时经 PC TCP 中继转发。2026-11-24 实测中 MediaMTX 命中已有入站阻止规则；盒端 `input.source` 临时改为 `rtsp://10.10.10.1:18554/cam`，PC 上运行 `10.10.10.1:18554 → 127.0.0.1:8554` 的临时 TCP 转发后完成 60 秒验收。回环可达不能代替局域网验收。`GET /api/v1/stats` 实测 `capture_fps` 14.1、`dropped_frames` 0，快照 640×480、MJPEG 流头为 `multipart/x-mixed-replace`。与真实 IP 相机相比，该模拟源没有 ONVIF 发现、相机鉴权和相机端编码差异。
+
+### 公开真实视频源
+
+需要真实人物画面时，可用 Edinburgh CAVIAR 数据集的走廊视角 `OneStopEnter1cor`（原始 384×288、25fps；数据集页标注 MPEG-2，`ffprobe` 识别为 mpeg1video）。数据公开可用，许可证为 CC BY-SA；发布结果须致谢 EC Funded CAVIAR project/IST 2001 37540，下载页见 <http://homepages.inf.ed.ac.uk/rbf/CAVIAR/>。视频只留本机临时目录，不入库：
+
+```sh
+curl -L -o OneStopEnter1cor.mpg \
+  https://homepages.inf.ed.ac.uk/rbf/CAVIARDATA2/OneStopEnter1cor/OneStopEnter1cor.mpg
+ffmpeg -fflags +genpts -stream_loop 3 -i OneStopEnter1cor.mpg -an \
+  -vf "scale=640:480,fps=15" -t 30 -c:v libx264 -preset ultrafast \
+  -tune zerolatency -g 15 -pix_fmt yuv420p -b:v 1200k caviar_30s.mp4
+```
+
+把上述 `caviar_30s.mp4` 代入模拟器推流命令即可。2026-11-24 用该源并经 PATCH 将 MAD 临时改为 0.0 后，60 秒实测采集／检测均 14.2 FPS、丢帧 0，快照 640×480 且 OSD 标出 `person 0.64`，MJPEG 3 秒 1.73 MB；默认 MAD 8.0 时这段慢速走廊画面几乎全被跳过，需按场景调阈值或强制检测。CAVIAR 素材是低分辨率老录像，不代表现代 IP 相机的画质与编码特性。
 
 ## 魔百盒部署（脚本与模板已就绪；2026-11-24 完成首次真机验收）
 
