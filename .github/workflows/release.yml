@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,6 +12,7 @@ jobs:
   build:
     name: verify-and-package
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,12 +23,23 @@ jobs:
       - name: Install native dependencies and ARM64 compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libstb-dev libgtest-dev nlohmann-json3-dev libcpp-httplib-dev g++-aarch64-linux-gnu
-      - name: Install ARM64 FFmpeg development libraries
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libstb-dev libgtest-dev nlohmann-json3-dev libcpp-httplib-dev g++-aarch64-linux-gnu patchelf pax-utils python3-pyelftools
+      - name: Native CMake build and offline CTest
+        run: |
+          cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build build-native --parallel 2
+          ctest --test-dir build-native --parallel 2 --output-on-failure --no-tests=error
+      - name: Install Python dependencies
+        run: python3 -m pip install -r cloud-storage/requirements.txt pytest httpx
+      - name: Strict Python validation
+        run: |
+          python3 -m py_compile cloud-storage/server.py
+          python3 -m pytest -q cloud-storage
+      - name: Install ARM64 development and runtime libraries
         run: |
           sudo dpkg --add-architecture arm64
           if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-            sudo sed -i 's/^Types: deb$/Types: deb\nArchitectures: amd64/' /etc/apt/sources.list.d/ubuntu.sources
+            sudo sed -i '/^Architectures:/d; /^Types:/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources
           else
             sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
           fi
@@ -39,36 +52,48 @@ jobs:
           Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
           EOF
           sudo apt-get update
-          sudo apt-get install -y libavformat-dev:arm64 libavcodec-dev:arm64 libavutil-dev:arm64 libswscale-dev:arm64 libcpp-httplib-dev:arm64
-      - name: Native CMake build and offline CTest
-        run: |
-          cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-          cmake --build build-native --parallel 2
-          ctest --test-dir build-native --output-on-failure --no-tests=error
-      - name: Install Python dependencies
-        run: python3 -m pip install -r cloud-storage/requirements.txt pytest httpx
-      - name: Strict Python validation
-        run: |
-          python3 -m py_compile cloud-storage/server.py
-          python3 -m pytest -q cloud-storage
+          sudo apt-get install -y libavformat-dev:arm64 libavcodec-dev:arm64 libavutil-dev:arm64 libswscale-dev:arm64 libcpp-httplib-dev:arm64 libstdc++6:arm64 libgcc-s1:arm64 libgomp1:arm64
       - name: ARM64 cross-compile
-        env:
-          PKG_CONFIG_LIBDIR: /usr/lib/aarch64-linux-gnu/pkgconfig
         run: |
-          cmake -S . -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-toolchain.cmake -DBUILD_TESTING=OFF
+          cmake -S . -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-toolchain.cmake -DBUILD_TESTING=OFF '-DCMAKE_INSTALL_RPATH=$ORIGIN/../lib'
           cmake --build build-arm64 --parallel 2
-      - name: Package the installed ARM64 executable, config and service
+      - name: Package ARM64 executable and dynamic runtime closure
         id: package
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          PACKAGE_VERSION: ${{ github.event_name == 'push' && github.ref_name || format('build-{0}', github.sha) }}
         run: |
           cmake --install build-arm64 --prefix staging
-          test -x staging/bin/edge-vision-analyzer
+          executable=$(realpath staging/bin/edge-vision-analyzer)
+          mkdir -p staging/lib staging/licenses
+          LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu /usr/bin/python3 /usr/bin/lddtree --list "$executable" > build-arm64/runtime-libraries.txt
+          : > build-arm64/runtime-packages.txt
+          while IFS= read -r library; do
+            if [ "$library" = "$executable" ]; then continue; fi
+            owner=$(dpkg-query -S "$(realpath "$library")")
+            package=${owner%%: /*}
+            if [ "$package" = 'libc6:arm64' ]; then continue; fi
+            name=$(basename "$library")
+            cp -L "$library" "staging/lib/$name"
+            patchelf --set-rpath '$ORIGIN' "staging/lib/$name"
+            printf '%s\n' "$package" >> build-arm64/runtime-packages.txt
+          done < build-arm64/runtime-libraries.txt
+          printf 'binary_package\tversion\tsource_package\tsource_version\n' > staging/dependencies.tsv
+          sort -u build-arm64/runtime-packages.txt | while IFS= read -r package; do
+            dpkg-query -W -f='${binary:Package}\t${Version}\t${source:Package}\t${source:Version}\n' "$package" >> staging/dependencies.tsv
+            name=${package%:arm64}
+            install -D "/usr/share/doc/$name/copyright" "staging/licenses/$name/copyright"
+          done
+          install -D build-arm64/_deps/ncnn-src/LICENSE.txt staging/licenses/ncnn/LICENSE.txt
+          install -D /usr/share/doc/nlohmann-json3-dev/copyright staging/licenses/nlohmann-json/copyright
+          install -D /usr/share/doc/libstb-dev/copyright staging/licenses/stb/copyright
+          aarch64-linux-gnu-readelf -h -d "$executable"
           install -D config/config.example.json staging/config/config.example.json
           install -D deploy/edge-vision.service staging/deploy/edge-vision.service
           install -D deploy/journald-edge.conf staging/deploy/journald-edge.conf
           install -D deploy/fluent-bit.conf staging/deploy/fluent-bit.conf
-          archive="edge-vision-analyzer-${RELEASE_TAG}-arm64.tar.gz"
+          install -D deploy/fluent-bit-limits.conf staging/deploy/fluent-bit-limits.conf
+          install -m 0644 deploy/arm64-package.md staging/README.md
+          archive="edge-vision-analyzer-${PACKAGE_VERSION}-arm64.tar.gz"
           tar -czf "$archive" -C staging .
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
       - name: Save the validated release archive
@@ -80,6 +105,7 @@ jobs:
 
   publish:
     name: publish-release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-24.04
     permissions:
