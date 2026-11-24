@@ -15,6 +15,8 @@
 | [docs/roadmap.md](docs/roadmap.md) | 两阶段数据源、完整交付件、节点内部设计与离线验收 |
 | [config/config.example.json](config/config.example.json) | 局域网示例，运行前复制为 `config/config.local.json` |
 
+可写入简历的技术栈按证据分档见 [docs/resume-stack.md](docs/resume-stack.md)。
+
 ## 硬件与网络
 
 手机通过 Type-C 转网口扩展坞、魔百盒通过网线、联想奔腾 PC 通过网线，三台分别接入同一以太网交换机。手机与魔百盒不使用 USB 直连。有 PD 口的手机扩展坞可单独供电。交换机接上级路由器时使用 DHCP；独立离线组网时手动设置同网段静态 IP，详见架构文档。
