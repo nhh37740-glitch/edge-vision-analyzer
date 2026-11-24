@@ -148,6 +148,8 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 
 `CMakeLists.txt` 已为 `edge-vision-analyzer` 添加 `install(TARGETS edge-vision-analyzer RUNTIME DESTINATION bin)`，为 release 打包提供安装目录；本机已可构建该目标，不等于已交叉编译、打包或在目标机部署。
 
+Issue #144 已补充 [.github/workflows/release.yml](../.github/workflows/release.yml) 的手动构建入口和动态运行库闭包打包：程序使用 `$ORIGIN/../lib`，每个随包库使用 `$ORIGIN`；glibc 与加载器仍由目标机提供，目标基线为 noble／aarch64、glibc 2.39。`workflow_dispatch` 执行 native 构建／离线测试、ARM64 构建及 artifact 上传，只有 `v*` Tag 触发 Release 发布；常规 PR 不构建 ARM。本轮尚未完成 runner 交叉构建、离线目标机运行或发版验收。包结构与部署回退见 [arm64-package.md](../deploy/arm64-package.md)；回退材料仅保存在联想 PC，盒上不保留旧程序、旧库或配置备份。部署须先停止服务安装同包 `lib/`，再由现有脚本更新主程序，保留现场配置、模型与当前使用的视频；验收后确认文件已不再使用，再删除盒端上传归档、staging、deb、构建源码及临时副本，只保留必要运行文件。该清理要求尚未在本轮执行，实际结果另行登记。
+
 ## 9. 配置、FFmpeg 生命周期与服务守护（PATCH-007）
 
 仓库只维护公开的 [config.example.json](../config/config.example.json) 模板。部署时先复制为 `config/config.local.json`，再填写实际手机／PC 地址、端口和必要凭据；本地文件受 Git 忽略，不把现场私有配置写回公开模板。边缘进程使用本地配置启动，`GET /api/v1/config` 仍按接口脱敏；配置文件分离不改变 REST 契约。
@@ -206,13 +208,24 @@ systemd-journald（默认 namespace）
 
 以下命令用于复现首次部署；本次安装与基础验收已完成，复验时需按现场已有配置调整。一次性日志安装独立于 `scripts/deploy_to_box.sh` 的应用发包流程。先在 PC 启动 `cloud-storage`，确认目标机能访问 `http://10.10.10.1:8090/health`；安装前完成对时。离线包适用于 Ubuntu noble／arm64：PC 从 [Fluent Bit 软件源](https://packages.fluentbit.io/ubuntu/noble/pool/main/f/fluent-bit/fluent-bit_5.2.0_arm64.deb) 下载 `fluent-bit_5.2.0_arm64.deb`，从 [Ubuntu ports](https://ports.ubuntu.com/ubuntu-ports/pool/main/p/postgresql-16/libpq5_16.15-0ubuntu0.24.04.1_arm64.deb) 下载 `libpq5_16.15-0ubuntu0.24.04.1_arm64.deb`；连同仓库三个日志模板传至目标机 `/tmp/edge-logging/`。不把安装包或现场配置提交仓库。
 
-在目标机以 root 执行；以下按首次安装、两个 drop-in 目标文件原先不存在编写。已有 Fluent Bit 或同名配置时先备份并合并，回退时恢复原文件。包管理器报告其他缺失依赖时在 PC 补齐对应 noble／arm64 包，不强制忽略依赖。
+在目标机以 root 执行；以下按首次安装、两个 drop-in 目标文件原先不存在编写。已有 Fluent Bit 或同名配置时先将原文件取回联想 PC 后再合并，回退时从 PC 重新上传；盒上不保留 `.pre-edge` 等备份副本。包管理器报告其他缺失依赖时在 PC 补齐对应 noble／arm64 包，不强制忽略依赖。
 
 ```sh
 cd /tmp/edge-logging
 dpkg -i libpq5_16.15-0ubuntu0.24.04.1_arm64.deb fluent-bit_5.2.0_arm64.deb
 systemctl stop fluent-bit
-cp -a /etc/fluent-bit/fluent-bit.conf /etc/fluent-bit/fluent-bit.conf.pre-edge
+```
+
+覆盖默认配置前，在联想 PC 保存回退文件；`EDGE_BOX_HOST` 为 SSH 目标，`PC_ROLLBACK_DIR` 为 PC 上不入库的回退目录：
+
+```sh
+mkdir -p "$PC_ROLLBACK_DIR"
+scp "$EDGE_BOX_HOST:/etc/fluent-bit/fluent-bit.conf" "$PC_ROLLBACK_DIR/fluent-bit.conf"
+```
+
+再在目标机继续安装：
+
+```sh
 install -d /etc/systemd/journald.conf.d /etc/systemd/system/fluent-bit.service.d
 install -m 0644 journald-edge.conf /etc/systemd/journald.conf.d/zz-edge-vision.conf
 install -m 0644 fluent-bit.conf /etc/fluent-bit/fluent-bit.conf
@@ -237,18 +250,25 @@ journalctl -u fluent-bit -n 20 --no-pager
 logger -t edge-logging-filter-probe 'edge-logging-filter-probe'
 ```
 
-PC 读取 `curl -i "http://127.0.0.1:8090/api/v1/logs?date=$(date -u +%F)&tail=1000"`，确认 200、`application/x-ndjson`，新记录含 `MESSAGE`、`_SYSTEMD_UNIT=edge-vision.service`，上述非 edge 探针匹配 0。分别记录采集器 `MemoryCurrent` 和 `/proc/<MainPID>/status` 的 `VmRSS`；Issue #145 验收要求前者小于 96 MiB、journal 占用不超过 30 MiB，不能把配置限额填作测量值。复现投递失败时，先备份采集器配置，临时将 HTTP Host／Port 改为 `127.0.0.1`／`1`（用 `ss` 确认未监听），重启采集器及 edge 后记录服务状态、资源和重试／丢弃日志；结束时恢复原配置并重启采集器及 edge，确认后续日志到达。实际网络中断、整机重启及长时间运行仍需另行验证。无游标 DB、`Read_From_Tail On` 和有限重试意味着断连或重启期间可丢日志，“恢复”只承诺后续新日志转发，不是历史批次补传。真实结果写入 [实测台账](benchmarks.md) 后再更新验收状态。
+PC 读取 `curl -i "http://127.0.0.1:8090/api/v1/logs?date=$(date -u +%F)&tail=1000"`，确认 200、`application/x-ndjson`，新记录含 `MESSAGE`、`_SYSTEMD_UNIT=edge-vision.service`，上述非 edge 探针匹配 0。分别记录采集器 `MemoryCurrent` 和 `/proc/<MainPID>/status` 的 `VmRSS`；Issue #145 验收要求前者小于 96 MiB、journal 占用不超过 30 MiB，不能把配置限额填作测量值。复现投递失败时，先将采集器配置保存到联想 PC，临时将 HTTP Host／Port 改为 `127.0.0.1`／`1`（用 `ss` 确认未监听），重启采集器及 edge 后记录服务状态、资源和重试／丢弃日志；结束时恢复原配置并重启采集器及 edge，确认后续日志到达。实际网络中断、整机重启及长时间运行仍需另行验证。无游标 DB、`Read_From_Tail On` 和有限重试意味着断连或重启期间可丢日志，“恢复”只承诺后续新日志转发，不是历史批次补传。真实结果写入 [实测台账](benchmarks.md) 后再更新验收状态。
 
-首次安装的回退命令如下，停止采集、恢复包默认配置并撤销本次两个 drop-in；移除 `zz-edge-vision.conf` 后，journal 设置恢复其余主配置与 drop-in 的合并结果，包括发行版的 syslog 转发设置。回退不会清空既有 journal 或 PC 日志。已有配置的现场应恢复对应备份，而非删除原有文件。
+首次安装的回退先在联想 PC 停止采集并重新上传保存的包默认配置，再在目标机撤销本次两个 drop-in。已有配置的现场应上传 PC 上对应的原文件，不删除原有配置；所有回退副本仅留 PC。移除 `zz-edge-vision.conf` 后，journal 设置恢复其余主配置与 drop-in 的合并结果，包括发行版的 syslog 转发设置。回退不会清空既有 journal 或 PC 日志。
 
 ```sh
-systemctl disable --now fluent-bit
-mv /etc/fluent-bit/fluent-bit.conf.pre-edge /etc/fluent-bit/fluent-bit.conf
+# 联想 PC
+ssh "$EDGE_BOX_HOST" 'systemctl disable --now fluent-bit'
+scp "$PC_ROLLBACK_DIR/fluent-bit.conf" "$EDGE_BOX_HOST:/etc/fluent-bit/fluent-bit.conf"
+```
+
+```sh
+# 目标机
 rm /etc/systemd/journald.conf.d/zz-edge-vision.conf
 rm /etc/systemd/system/fluent-bit.service.d/limits.conf
 systemctl daemon-reload
 systemctl restart systemd-journald
 ```
+
+安装或复验完成后，确认安装包和临时配置已不再使用，再删除盒端 `/tmp/edge-logging/` 及配置备份副本；联想 PC 保留回退材料。该清理要求尚待执行核验，不代表本轮已清除目标机既存文件。
 
 ### 10.2 PC 接收、存储与查询
 
