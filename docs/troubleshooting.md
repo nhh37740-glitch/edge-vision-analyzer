@@ -18,6 +18,10 @@
 - 根因：新可执行文件没有已登记的入站规则；仅绑定 `127.0.0.1` 的回环监听不会触发。
 - 解决命令：点击允许后规则生效；API 测试改用 `127.0.0.1`，正式服务保留 `0.0.0.0`。见 [讨论 #30](https://github.com/nhh37740-glitch/edge-vision-analyzer/discussions/30)。
 
+- 现象与命令：服务运行时 `deploy_to_box.sh` 直接 scp 覆盖 `/opt/edge-vision-analyzer/bin/edge-vision-analyzer`，报 `scp: dest open ... Failure`。
+- 根因：Linux 禁止写入正在执行的二进制，返回 `ETXTBSY`；上传为同目录 `.new` 文件成功。
+- 解决命令：脚本改为先传 `.new`，再由目标机 `mv -f` 原子替换并 `chmod 0755`；服务重启后加载新文件。
+
 ## 常驻提示（PATCH-009）
 
 ### 魔百盒热管理
