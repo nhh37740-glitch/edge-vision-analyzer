@@ -5,7 +5,7 @@
     "width": 640,
     "height": 480,
     "target_fps": 15,
-    "dump_interval_sec": 2
+    "dump_interval_sec": 0
   },
   "detector": {
     "motion_mad_threshold": 8.0,

@@ -13,7 +13,9 @@ struct InputConfig {
   int width = 640;
   int height = 480;
   int target_fps = 15;
-  int dump_interval_sec = 2;
+  // 0 disables periodic JPEG dumping; enable only for debugging because it
+  // grows the target disk without bound.
+  int dump_interval_sec = 0;
 };
 
 struct ModelCandidate {

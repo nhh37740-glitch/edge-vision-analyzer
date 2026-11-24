@@ -106,7 +106,9 @@ bash scripts/deploy_to_box.sh "$EDGE_BOX_HOST" \
   edge-vision
 ```
 
-脚本把构件放入目标机 `/opt/edge-vision-analyzer/bin/`，把配置模板落到 `/opt/edge-vision-analyzer/config/config.local.json`，重启 `edge-vision.service` 后在目标机循环请求 `http://127.0.0.1:8081/api/v1/health`。目标机目录需预先准备，脚本不保存也不传递 sudo 密码。
+脚本把构件放入目标机 `/opt/edge-vision-analyzer/bin/`。目标机已有 `config/config.local.json` 时默认保留现场配置，只提示覆盖方式；首次部署（文件不存在）或显式设置 `EDGE_CONFIG_FORCE=1` 时才把配置模板写到该路径。随后重启 `edge-vision.service` 并在目标机循环请求 `http://127.0.0.1:8081/api/v1/health`。目标机目录需预先准备，脚本不保存也不传递 sudo 密码。
+
+公开模板的 `input.dump_interval_sec` 默认为 0，即不周期性写盘；调试确需截帧时再显式设置。640×480、每 2 秒一张的估算写入量约 860MB/天，会耗尽盒上可用空间。
 
 失败排查：
 

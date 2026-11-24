@@ -109,6 +109,8 @@ JSON 请求与响应使用 `application/json`。HTTP 400 / 404 / 500 / 503 采�
 | `storage` | `enabled`, `endpoint`, `timeout_sec` |
 | `streamer` | `mode`, `http_port`, `rtsp_url` |
 
+`input.dump_interval_sec` 为 0 时关闭周期性 JPEG 落盘；非 0 时每 N 秒在目标机写一张图，仅供调试，长期运行前需按磁盘容量显式开启。
+
 `event.max_events_in_memory` 已移除。OpenAPI `Config/LlmConfig` 与公开配置模板字段一致；本地地址等运行参数写入 `config/config.local.json`，该文件不提交仓库。
 
 `detector.quantization` 取 `auto`（默认）、`fp32`、`fp16` 或 `int8`。`detector.model_candidates` 为可选对象，键只能是 `fp32`、`fp16`、`int8`，每项包含成对的 `param` 与 `bin`。`auto` 在设备支持 int8（aarch64 dotprod/asimddp）、可用内存不小于 256 MB 且存在 int8 候选时选 int8，否则在支持 fp16 且内存不小于 128 MB 时选 fp16，否则使用 `model_param`/`model_bin` 基础模型。

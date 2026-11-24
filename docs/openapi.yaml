@@ -615,7 +615,8 @@ components:
         dump_interval_sec:
           type: number
           minimum: 0
-          default: 2
+          default: 0
+          description: Periodic JPEG dump interval in seconds; 0 disables dumping.
       required:
       - source
       - loop
