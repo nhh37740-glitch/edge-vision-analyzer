@@ -116,7 +116,7 @@ Windows 首次监听会弹防火墙确认；若盒端 TCP 8554 超时而 PC 本�
 
 ### 公开真实视频源
 
-需要真实人物画面时，可用 Edinburgh CAVIAR 数据集的走廊视角 `OneStopEnter1cor`（原始 384×288、25fps、MPEG-2）。数据公开可用，许可证为 CC BY-SA；发布结果须致谢 EC Funded CAVIAR project/IST 2001 37540，下载页见 <http://homepages.inf.ed.ac.uk/rbf/CAVIAR/>。视频只留本机临时目录，不入库：
+需要真实人物画面时，可用 Edinburgh CAVIAR 数据集的走廊视角 `OneStopEnter1cor`（原始 384×288、25fps；数据集页标注 MPEG-2，`ffprobe` 识别为 mpeg1video）。数据公开可用，许可证为 CC BY-SA；发布结果须致谢 EC Funded CAVIAR project/IST 2001 37540，下载页见 <http://homepages.inf.ed.ac.uk/rbf/CAVIAR/>。视频只留本机临时目录，不入库：
 
 ```sh
 curl -L -o OneStopEnter1cor.mpg \

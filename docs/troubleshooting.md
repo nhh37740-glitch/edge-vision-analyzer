@@ -64,7 +64,7 @@
 - 解决命令：改为 `-r 15 -c:v libx264 -preset ultrafast -tune zerolatency -g 15 -pix_fmt yuv420p` 重新编码后再推流，解码报错消失、采集 14.1 FPS。
 
 - 现象与命令：CAVIAR `OneStopEnter1cor.mpg` 用 `ffprobe` 查时长仅 0.11 秒，但 `-count_frames` 能读出 269 帧。
-- 根因：MPEG-1 文件缺少可靠时间戳，容器时长字段不可信；直接转码会得到异常时间轴。
+- 根因：MPEG 文件缺少可靠时间戳，容器时长字段不可信；直接转码会得到异常时间轴。
 - 解决命令：转码时加 `-fflags +genpts`，用 `-vf fps=15` 重设帧率并 `-t 30` 截取；CAVIAR 为 CC BY-SA，使用时致谢项目，视频不入库。
 
 ## 常驻提示（PATCH-009）
