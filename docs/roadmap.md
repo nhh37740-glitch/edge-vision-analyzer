@@ -1,12 +1,12 @@
 # Edge Vision Analyzer — 里程碑、内部契约与验收
 
-状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，v0.2 的帧差漏斗 MotionNode、NcnnDetectorNode 与检测量化选型模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递、`EventTrackerNode` 事件聚合与 LLM 量化选型已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现，上述模块已由 `src/main.cpp` 接入端到端运行入口；PC 云存储服务已实现，health 上游探活已实现，部署脚本与模板已就绪，PATCH config 原子热更新已实现；离线单测已覆盖上述模块，真机验收待执行。更新日期：2026-11-24（北京时间）。
+状态：有效设计；v0.1 的核心框架、采集模块与控制面已实现并通过本地回环验证，v0.2 的帧差漏斗 MotionNode、NcnnDetectorNode 与检测量化选型模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递、`EventTrackerNode` 事件聚合与 LLM 量化选型已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现，上述模块已由 `src/main.cpp` 接入端到端运行入口；PC 云存储服务已实现，health 上游探活已实现，部署脚本与模板已就绪，PATCH config 原子热更新已实现；离线单测已覆盖上述模块。2026-11-24 已在魔百盒完成本地视频真机部署验收，手机流、LLM／存储联动、RTSP／MediaMTX 与日志采集仍待验收。更新日期：2026-11-24（北京时间）。
 
 本文件是阶段交付、节点内部设计和验收标准的正式依据，已合并项目启动规格与 PATCH-001 至 PATCH-009。存储和历史查询以 PATCH-003 为准。仓库协作和构建契约以 PATCH-004/005 为准。开发与 Git 契约以 [AGENTS.md](../AGENTS.md) 为准；系统架构与部署拓扑见 [architecture.md](architecture.md)；接口语义和机器契约分别见 [api.md](api.md)、[openapi.yaml](openapi.yaml)；配置默认值见 [config.example.json](../config/config.example.json)。接力开发只需读取仓库文件，不依赖聊天记录或外部附件。
 
 ## 1. 当前执行边界与后续启动条件
 
-当前已实现 C++17 构建骨架、aarch64 工具链、`src/core`／`src/common` 的节点框架、配置与指标，`src/capture` 的 FFmpeg 拉流、RGB24 解码、截帧和仅视频 remux 录片，`src/streamer` 的 OSD 标注与按需 JPEG／MJPEG／RTSP 输出，`src/transport` 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合，以及 `src/api` 的 health、stats、config 读取与 PATCH 原子热更新、source-switch 控制面；上述模块均有离线测试覆盖，并已由 `src/main.cpp` 装配为端到端运行入口。PC 存储服务已实现，部署脚本与模板已就绪，真机验收待执行。所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
+当前已实现 C++17 构建骨架、aarch64 工具链、`src/core`／`src/common` 的节点框架、配置与指标，`src/capture` 的 FFmpeg 拉流、RGB24 解码、截帧和仅视频 remux 录片，`src/streamer` 的 OSD 标注与按需 JPEG／MJPEG／RTSP 输出，`src/transport` 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合，以及 `src/api` 的 health、stats、config 读取与 PATCH 原子热更新、source-switch 控制面；上述模块均有离线测试覆盖，并已由 `src/main.cpp` 装配为端到端运行入口。PC 存储服务已实现，部署脚本与模板已就绪；魔百盒已用本地视频完成首次真机部署验收，手机流、LLM／存储联动、RTSP／MediaMTX 与日志采集仍待验收。所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
 当前仓库包含协作模板、GitHub Actions、根 [CMakeLists.txt](../CMakeLists.txt) 的 C++17 构建骨架和 `cmake/aarch64-toolchain.cmake`；Issue #1 已使 `edge_core` 与 `test_build` 可构建，Issue #2 增加 `edge_common` 与 `test_core`，Issue #3 增加 `edge_capture`，Issue #4 增加 `edge_api` 与运行入口，Issue #5 增加 `test_capture` 与 `test_api` 离线用例；其余目标随 `v0.1-oculus` 的各项 Issue 加入。FastAPI `server.py` 已在 `v0.3-nous` 实现。接手 Agent 在收到开发指令后实施业务，所有修改以绑定 Issue 的 PR 走 `ci-gate` 并按 Squash 合并。
 
@@ -260,10 +260,10 @@ class BaseNode {
 
 | 里程碑／规划发版 Tag | 感官意象 | 功能目标 | 当前状态 |
 | --- | --- | --- | --- |
-| `v0.1-oculus` | Oculus，神目／视觉 | 接入手机有线流和本地循环视频，完成采集与基础控制面 | 已实现并接入运行入口（本机回环与离线验证）；真机阶段 A 验收待执行 |
-| `v0.2-discern` | Discern，洞察／明辨 | 帧差漏斗与 NCNN 端侧目标检测 | 检测与量化选型已实现并接入运行入口；PATCH config 热更新已实现，真机验收待执行 |
-| `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 事件聚合与异步投递已实现并接入运行入口，LLM 量化选型与 PC 云存储服务已实现；真机验收待执行 |
-| `v1.0-vox` | Vox，神谕之声／宣示 | OSD、MJPEG／RTSP、systemd 守护交付 | OSD、快照与 MJPEG／RTSP 双模输出已实现并接入运行入口；部署脚本／模板已就绪，真机与 MediaMTX 验收待执行 |
+| `v0.1-oculus` | Oculus，神目／视觉 | 接入手机有线流和本地循环视频，完成采集与基础控制面 | 已实现；魔百盒本地视频与控制面真机验收完成，手机流阶段 A 待执行 |
+| `v0.2-discern` | Discern，洞察／明辨 | 帧差漏斗与 NCNN 端侧目标检测 | 检测与量化选型、PATCH config 热更新已实现；魔百盒本地视频真机验收完成 |
+| `v0.3-nous` | Nous，神思／心智 | 瞬时事件聚合、异步推理／存储投递、PC 历史查询 | 事件聚合、异步投递、LLM 量化选型与 PC 云存储已实现，云存储由离线 pytest 覆盖；边缘与 LLM／存储联动待真机验收 |
+| `v1.0-vox` | Vox，神谕之声／宣示 | OSD、MJPEG／RTSP、systemd 守护交付 | OSD、快照、MJPEG 与 systemd 已在魔百盒验收；RTSP／MediaMTX 与日志采集待验收 |
 
 验收完成后按 [AGENTS.md](../AGENTS.md) 发布。任一 `v*` Tag 都要求 x86_64 构建及 CTest、云存储离线 pytest、aarch64 构建及打包。打 Tag 前确认云存储已有可运行测试、`deploy/edge-vision.service` 模板已在目标机验收，且 CMake 可安装 `bin/edge-vision-analyzer`。这是首个 Release 同样适用的前置条件。
 
@@ -277,7 +277,7 @@ class BaseNode {
 - `src/capture/capture_node.hpp` / `.cpp`、`frame_dumper.hpp` / `.cpp`：FFmpeg 拉流、本地循环、仅视频 remux 录片与按间隔保存 JPEG。
 - `src/main.cpp` 已实现最小采集/控制面运行入口与 `--record-clip`／`--duration` 录片命令行装配；`v1.0-vox` 再完善完整流水线组装与交付。
 - `src/api/api_server.hpp` / `.cpp`：挂载 `GET /api/v1/health`、`GET /api/v1/stats`、`GET /api/v1/config`、`POST /api/v1/source/switch`。
-- `tests/test_capture.cpp`（当前 2 个用例）、`tests/test_api.cpp` 与极小离线 fixture；本机已构建并运行离线测试，Issue #51 补充采集用例。aarch64 交叉编译与阶段 A 真机验收待补。
+- `tests/test_capture.cpp`（当前 2 个用例）、`tests/test_api.cpp` 与极小离线 fixture；本机已构建并运行离线测试，Issue #51 补充采集用例。目标机已用离线原生构建完成本地视频验收；aarch64 交叉编译与手机流阶段 A 验收待补。
 
 **内部架构：**
 
@@ -295,7 +295,7 @@ class BaseNode {
 
 **阶段 A 真机验收：**
 
-在联想宿主机完成 ARM64 交叉编译；经单独授权部署到魔百盒后，成功拉取手机 IP Webcam 流，按配置保存 `.jpg`，录制含静止与人物运动的 `assets/demo_clip.mp4`，再切换为该视频稳定循环。本机 x86_64 构建与离线测试已完成；ARM64 交叉编译与阶段 A 真机验收待补。编译通过、部署完成、现场通路验收分别记录，不能混写为“上线可用”。
+在联想宿主机完成 ARM64 交叉编译；经单独授权部署到魔百盒后，成功拉取手机 IP Webcam 流，按配置保存 `.jpg`，录制含静止与人物运动的 `assets/demo_clip.mp4`，再切换为该视频稳定循环。本机 x86_64 构建与离线测试已完成；2026-11-24 的首次真机验收因目标机无外网且缺少 aarch64 sysroot，改用盒上离线原生构建，并以本地 `assets/demo_clip_30s.mp4` 循环完成部署、控制面、检测、OSD、MJPEG 与优雅退出验收。手机 IP Webcam 的 `/shot.jpg` 与 `/video` 均超时，因此 ARM64 交叉编译、手机流与设备端截帧／录片仍待补。编译通过、部署完成、现场通路验收分别记录，不能混写为“上线可用”。
 
 ### 4.2 `v0.2-discern` — 帧差漏斗与 NCNN 端侧检测
 
@@ -400,7 +400,7 @@ FastAPI `POST /api/v1/events` 解码干净 JPEG，把图片写入 `cloud-storage
 - `src/streamer/stream_out_node.hpp` / `.cpp`。
 - `src/streamer/rtsp_pusher.hpp` / `.cpp`。
 - `src/main.cpp`：声明式 `BaseNode::attach_next()` 组装与 `SIGINT` / `SIGTERM` 优雅退出（已实现，Issue #88）。
-- 在目标机验证已有 `deploy/edge-vision.service`、`deploy/journald-edge.conf` 和 `deploy/fluent-bit.conf`，并已实现 [deploy_to_box.sh](../scripts/deploy_to_box.sh)，统一对时、打印环境、传包、重启和验活，最多 50 行。脚本与模板就绪，真机验收待执行。
+- 在目标机验证已有 `deploy/edge-vision.service`、`deploy/journald-edge.conf` 和 `deploy/fluent-bit.conf`，并已实现 [deploy_to_box.sh](../scripts/deploy_to_box.sh)，统一对时、打印环境、传包、重启和验活，最多 50 行。脚本与模板已就绪；`edge-vision.service` 已于 2026-11-24 在魔百盒安装运行，journald／fluent-bit 模板仍未安装。
 - `ApiServer` 补充 `GET /api/v1/snapshot.jpg` 和 `GET /api/v1/stream`。
 - `tests/test_streamer.cpp`，3～5 个离线用例。
 - 完善 `README.md`：架构图、部署步骤、实测性能指标表；发布／部署／现场验收结果分别记录。
@@ -411,7 +411,7 @@ FastAPI `POST /api/v1/events` 解码干净 JPEG，把图片写入 `cloud-storage
 
 `StreamOutNode` 默认采用 `mjpeg`：只在存在活跃 `/api/v1/stream` 连接或收到 `/api/v1/snapshot.jpg` 请求时调用 `stbi_write_jpg_to_func`，广播带 OSD 的图像；无人观看且无快照请求时跳过 JPEG 编码。MJPEG 媒体类型为 `multipart/x-mixed-replace; boundary=frame`；快照无首帧时返回 503。
 
-可选 `rtsp` 模式由 `RtspPusher` 启动 FFmpeg 管道，以 `-preset ultrafast -tune zerolatency -b:v 500k` 推送外部 `bluenviron/mediamtx`；不在边缘程序里实现 RTSP 服务端。选择模式、地址和端口从统一配置读取。Issue #98 已把推流器按 `config.streamer` 注入 `StreamOutNode`：`rtsp` 时逐帧在独立缓冲画 OSD 后以 RGB24 推送，`mjpeg` 时不启动子进程；推流器启动失败只告警，MJPEG 端点与流水线继续运行。启动和停止由 `src/main.cpp` 接入现有优雅退出，先停节点再回收编码进程。真机 MediaMTX 联调与画质、延迟验收仍待执行。
+可选 `rtsp` 模式由 `RtspPusher` 启动 FFmpeg 管道，以 `-preset ultrafast -tune zerolatency -b:v 500k` 推送外部 `bluenviron/mediamtx`；不在边缘程序里实现 RTSP 服务端。选择模式、地址和端口从统一配置读取。Issue #98 已把推流器按 `config.streamer` 注入 `StreamOutNode`：`rtsp` 时逐帧在独立缓冲画 OSD 后以 RGB24 推送，`mjpeg` 时不启动子进程；推流器启动失败只告警，MJPEG 端点与流水线继续运行。启动和停止由 `src/main.cpp` 接入现有优雅退出，先停节点再回收编码进程。MJPEG 与快照已在魔百盒验收；真机 MediaMTX 联调与画质、延迟验收仍待执行。
 
 **离线测试（已实现，使用 FakeProcessSink，不启动真实 ffmpeg 或网络）：**
 

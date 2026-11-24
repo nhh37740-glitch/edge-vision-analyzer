@@ -1,6 +1,6 @@
 # Edge Vision Analyzer 架构
 
-状态：有效设计契约；v0.1 核心框架、采集模块与控制面（health、stats、config 读取与 PATCH 原子热更新、source-switch）已实现，v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）与 NcnnDetectorNode（NCNN 目标检测与 NMS）模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现；以上模块已由 `src/main.cpp` 接入端到端运行入口。PC 云存储服务（FastAPI + SQLite）与 LLM/Storage 上游探活已实现，部署脚本与模板已就绪，PATCH config 原子热更新已实现，真机验收待执行。维护：项目接力 Agent；日期：2026-11-24（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集及 PC 日志落盘／查询，PATCH-009 补充部署对时与温度观测。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
+状态：有效设计契约；v0.1 核心框架、采集模块与控制面（health、stats、config 读取与 PATCH 原子热更新、source-switch）已实现，v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）与 NcnnDetectorNode（NCNN 目标检测与 NMS）模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现；以上模块已由 `src/main.cpp` 接入端到端运行入口。PC 云存储服务（FastAPI + SQLite）与 LLM/Storage 上游探活已实现，部署脚本与模板已就绪，PATCH config 原子热更新已实现；2026-11-24 已在魔百盒完成本地视频真机部署验收，手机流、RTSP／MediaMTX、LLM／存储联动与 Fluent Bit 仍待验收。维护：项目接力 Agent；日期：2026-11-24（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集及 PC 日志落盘／查询，PATCH-009 补充部署对时与温度观测。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
 
 ## 1. 物理拓扑与三个服务入口
 
@@ -124,9 +124,9 @@ Nous 为单后台工作线程，顺序执行可选 LLM 和可选 Storage：JPEG 
 | `v0.3-nous`（神思） | 瞬时事件聚合、可选推理／存储投递、PC 存储服务实现与历史查询 |
 | `v1.0-vox`（神谕之声） | OSD、视频输出和 systemd 交付 |
 
-实时 MJPEG 仍只在观看或快照请求时编码，无请求时不编码；可选 RTSP 使用 `-preset ultrafast -tune zerolatency -b:v 500k`。Nous 的事件 JPEG 编码与实时 OSD 输出编码用途不同，不把两者混用。`src/main.cpp` 按 `config.streamer.mode` 装配输出：`mjpeg` 模式不创建推流子进程，保持按需 JPEG；`rtsp` 模式把可选 `RtspPusher` 注入 `StreamOutNode`，节点逐帧在独立缓冲生成 OSD，以 RGB24 投递有界写队列，共享采集帧保持只读。推流器启动失败（例如找不到 `ffmpeg`）只打印告警，流水线与 MJPEG 端点继续可用，不因此退出进程；停止时先停节点再回收推流进程，避免节点线程卡在编码器上。RTSP 地址、宽高与帧率分别取自 `config.streamer.rtsp_url` 和 `config.input`，真机 MediaMTX 联动验收待执行。后续验收需包含关闭上游／超时降级、队列丢旧与释放、优雅退出及 RSS **<150MB**；指标以实测记录为准。
+实时 MJPEG 仍只在观看或快照请求时编码，无请求时不编码；可选 RTSP 使用 `-preset ultrafast -tune zerolatency -b:v 500k`。Nous 的事件 JPEG 编码与实时 OSD 输出编码用途不同，不把两者混用。`src/main.cpp` 按 `config.streamer.mode` 装配输出：`mjpeg` 模式不创建推流子进程，保持按需 JPEG；`rtsp` 模式把可选 `RtspPusher` 注入 `StreamOutNode`，节点逐帧在独立缓冲生成 OSD，以 RGB24 投递有界写队列，共享采集帧保持只读。推流器启动失败（例如找不到 `ffmpeg`）只打印告警，流水线与 MJPEG 端点继续可用，不因此退出进程；停止时先停节点再回收推流进程，避免节点线程卡在编码器上。RTSP 地址、宽高与帧率分别取自 `config.streamer.rtsp_url` 和 `config.input`，真机 MediaMTX 联动仍待验收。后续验收需包含关闭上游／超时降级、队列丢旧与释放、优雅退出及 RSS **<150MB**；魔百盒空载验收实测 RSS 28.4MB、SIGTERM 约 1 秒退出、10 分钟丢帧 0，指标以实测记录为准。
 
-初始化和核心框架已交付：`edge_core` 的节点、队列与源分类，以及 `edge_common` 的配置和指标已实现并有本地离线测试。`edge_capture` 的 FFmpeg 拉流、RGB24 解码、EOF 循环、断线重连、截帧和仅视频 remux 录片，以及 `edge_api` 的实时控制端点和运行入口也已实现；`test_capture` 覆盖本地解码、循环与非法源，`test_api` 用伪 `SourceControl` 覆盖健康探针与切源。`edge_detector` 的 MotionNode／NcnnDetectorNode、`edge_streamer` 的 OSD／RTSP 与 `edge_transport` 的 JPEG／Base64、`GenAiWorker` 及 `EventTrackerNode` 已实现并由 `src/main.cpp` 装配为 CaptureNode → MotionNode → NcnnDetectorNode → EventTrackerNode → StreamOutNode 的端到端流水线，API 已接入快照与 MJPEG 回调，推流器已按 `config.streamer` 装配为 MJPEG／RTSP 双模并接入优雅退出；PC 存储服务已实现，部署脚本与模板已就绪，真机与 MediaMTX 验收待执行。后续变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；静态检查和工作流定义不等于业务构建或运行验收。
+初始化和核心框架已交付：`edge_core` 的节点、队列与源分类，以及 `edge_common` 的配置和指标已实现并有本地离线测试。`edge_capture` 的 FFmpeg 拉流、RGB24 解码、EOF 循环、断线重连、截帧和仅视频 remux 录片，以及 `edge_api` 的实时控制端点和运行入口也已实现；`test_capture` 覆盖本地解码、循环与非法源，`test_api` 用伪 `SourceControl` 覆盖健康探针与切源。`edge_detector` 的 MotionNode／NcnnDetectorNode、`edge_streamer` 的 OSD／RTSP 与 `edge_transport` 的 JPEG／Base64、`GenAiWorker` 及 `EventTrackerNode` 已实现并由 `src/main.cpp` 装配为 CaptureNode → MotionNode → NcnnDetectorNode → EventTrackerNode → StreamOutNode 的端到端流水线，API 已接入快照与 MJPEG 回调，推流器已按 `config.streamer` 装配为 MJPEG／RTSP 双模并接入优雅退出；PC 存储服务已实现，部署脚本与模板已就绪；魔百盒本地视频的 MJPEG／快照与控制面真机验收已完成，MediaMTX 与手机流仍待验收。后续变更继续通过受保护 `main` 的 PR／Squash 流程，不关闭保护或直接推送 main；静态检查和工作流定义不等于业务构建或运行验收。
 
 ## 8. 模块构建与链接边界（PATCH-005）
 
@@ -198,7 +198,7 @@ systemd-journald（默认 namespace）
 - [fluent-bit.conf](../deploy/fluent-bit.conf) 是魔百盒上独立采集进程的配置模板；`Systemd_Filter _SYSTEMD_UNIT=edge-vision.service`、`Read_From_Tail On`、`Mem_Buf_Limit 2MB`、`storage.type memory`。不配置游标 SQLite DB、文件系统缓冲、磁盘积压或拒绝数据落盘。2MB 限制的是输入缓冲阈值，达到阈值后暂停该输入；单次写入可越过阈值，不能当作 Fluent Bit 总 RSS 保证。[内存缓冲](https://docs.fluentbit.io/manual/administration/buffering-and-storage)、[背压行为](https://docs.fluentbit.io/manual/administration/backpressure)
 - HTTP 输出使用示例 LAN 主机 `192.168.10.10`、端口 `8090`、URI `/api/v1/logs`、`Format json` 和 `Retry_Limit 1`。最多重试一次，耗尽后丢弃该批次；这是日志传输的有限重试，与 Nous 事件投递不重试的契约分开。重试可能带来重复日志，轮转、采集器重启或网络故障可能丢日志，不承诺必达或精确一次。[重试官方语义](https://docs.fluentbit.io/manual/administration/scheduling-and-retries)
 
-三个部署模板均未在目标机安装或运行。后续获准部署时核对 Armbian 的 systemd／cgroup、journal 读取权限、Fluent Bit 构建包含 systemd input，以及 PC 接收端实现；再验证日志只保留于边缘内存并能投递 PC。不能以模板静态核对代替目标机运行验证，也不把输入缓冲阈值当作任何进程的实测内存指标。
+三个部署模板中，`edge-vision.service` 已于 2026-11-24 安装并在魔百盒运行；`journald-edge.conf` 与 `fluent-bit.conf` 仍未安装或运行。后续验证日志采集时核对 Armbian 的 systemd／cgroup、journal 读取权限、Fluent Bit 构建包含 systemd input，以及 PC 接收端实现；再验证日志只保留于边缘内存并能投递 PC。不能以模板静态核对代替目标机运行验证，也不把输入缓冲阈值当作任何进程的实测内存指标。
 
 ### 10.2 PC 接收、存储与查询
 
