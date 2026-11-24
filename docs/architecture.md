@@ -1,6 +1,6 @@
 # Edge Vision Analyzer 架构
 
-状态：有效设计契约；v0.1 核心框架、采集模块与控制面（health、stats、config 读取与 PATCH 原子热更新、source-switch）已实现，v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）与 NcnnDetectorNode（NCNN 目标检测与 NMS）模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现；以上模块已由 `src/main.cpp` 接入端到端运行入口。PC 云存储服务（FastAPI + SQLite）与 LLM/Storage 上游探活已实现，部署脚本与模板已就绪，PATCH config 原子热更新已实现；2026-11-24 已在魔百盒完成本地视频真机部署验收，手机流、RTSP／MediaMTX、LLM／存储联动与 Fluent Bit 仍待验收。维护：项目接力 Agent；日期：2026-11-24（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集及 PC 日志落盘／查询，PATCH-009 补充部署对时与温度观测。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
+状态：有效设计契约；v0.1 核心框架、采集模块与控制面（health、stats、config 读取与 PATCH 原子热更新、source-switch）已实现，v0.2 的帧差漏斗 MotionNode（64×48 灰度 MAD）与 NcnnDetectorNode（NCNN 目标检测与 NMS）模块已实现，v0.3 的 JPEG／Base64 编码、`GenAiWorker` 异步投递与 `EventTrackerNode` 事件聚合已实现，v1.0 的 OSD、快照与 MJPEG／RTSP 双模输出已实现；以上模块已由 `src/main.cpp` 接入端到端运行入口。PC 云存储服务（FastAPI + SQLite）与 LLM/Storage 上游探活已实现，部署脚本与模板已就绪，PATCH config 原子热更新已实现；2026-11-24 已在魔百盒完成本地视频真机部署验收与盒到 PC 存储投递，手机流、RTSP／MediaMTX、LLM 联动与 Fluent Bit 仍待验收。维护：项目接力 Agent；日期：2026-11-24（北京时间）。PATCH-003 覆盖存储与历史查询，PATCH-005 规定模块链接，PATCH-007 补充局域网、私有配置、资源生命周期与服务守护，PATCH-008 规定内存日志采集及 PC 日志落盘／查询，PATCH-009 补充部署对时与温度观测。本文与 [roadmap](roadmap.md)、[api](api.md) / [OpenAPI](openapi.yaml)、[AGENTS](../AGENTS.md) 共同构成仓库自包含依据。
 
 ## 1. 物理拓扑与三个服务入口
 

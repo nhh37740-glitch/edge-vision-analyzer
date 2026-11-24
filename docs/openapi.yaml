@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Edge Vision Analyzer 边缘与云存储 API
   version: 0.1.0
-  description: PATCH-003/007/008/009 两服务设计契约。v0.1-oculus 的 health、stats、config 读取与 source-switch，v1.0-vox 的 snapshot 与 stream，以及 v0.3-nous 的云存储 health/events/images/logs 端点均已实现；仅 PATCH config 待实现。LLM/Storage 上游探活已实现，边缘 degraded 仍只在 CaptureNode 失败时出现。服务仅在同一有线局域网通信；边缘:8081仅实时控制与流媒体，联想PC cloud-storage:8090保存历史事件、图片和接收日志，llama-server:8080仅提供本地推理。不接公有云服务。每个路径单独绑定servers，外部llama-server不在本OpenAPI
+  description: PATCH-003/007/008/009 两服务设计契约。v0.1-oculus 的 health、stats、config 读取与 source-switch，v1.0-vox 的 snapshot 与 stream，v0.3-nous 的云存储 health/events/images/logs 端点以及 PATCH config 均已实现。LLM/Storage 上游探活已实现，边缘 degraded 仍只在 CaptureNode 失败时出现。服务仅在同一有线局域网通信；边缘:8081仅实时控制与流媒体，联想PC cloud-storage:8090保存历史事件、图片和接收日志，llama-server:8080仅提供本地推理。不接公有云服务。每个路径单独绑定servers，外部llama-server不在本OpenAPI
     paths中。
 tags:
 - name: v0.1-oculus
@@ -10,7 +10,7 @@ tags:
 - name: v0.2-discern
   description: 检测与 PATCH config 原子热更新已实现并接入运行入口；魔百盒本地视频验收完成。
 - name: v0.3-nous
-  description: 事件聚合与异步语义分析已实现并接入运行入口；云存储服务由离线 pytest 覆盖，边缘与 LLM／存储联动仍待真机验收。
+  description: 事件聚合与异步语义分析已实现并接入运行入口；云存储服务由离线 pytest 覆盖，盒到 PC 的 health、事件与图片投递已真机验收，LLM 联动仍待验收。
 - name: v1.0-vox
   description: OSD、快照与 MJPEG 已在魔百盒验收；RTSP／MediaMTX、日志采集与 Fluent Bit 待验收。
 paths:
@@ -504,7 +504,7 @@ components:
       required:
       - status
       - endpoint
-      description: 单个上游的连通状态。由边缘后台探活线程缓存；探活不触发实际生成或写入，上游不可达不改变边缘自身的200与status。魔百盒已验证 health 200 与关闭时的 disabled；启用上游后的 reachable／unreachable 仍待真机联调。
+      description: 单个上游的连通状态。由边缘后台探活线程缓存；探活不触发实际生成或写入，上游不可达不改变边缘自身的200与status。魔百盒已验证 health 200、关闭时的 disabled，以及 Storage 指向 PC 时返回 reachable；LLM 的 reachable／unreachable 仍待真机联调。
     Health:
       type: object
       additionalProperties: false
