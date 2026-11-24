@@ -12,7 +12,7 @@ tags:
 - name: v0.3-nous
   description: 事件聚合与异步语义分析已实现并接入运行入口；云存储服务由离线 pytest 覆盖，盒到 PC 的 health、事件与图片投递已真机验收，LLM 联动已验收；事件冷却与第二条事件未覆盖。
 - name: v1.0-vox
-  description: OSD、快照与 MJPEG 已在魔百盒验收；本地 RTSP 模拟源取流已验收；盒端 RTSP 推流输出、日志采集与 Fluent Bit 待验收。
+  description: OSD、快照与 MJPEG 已在魔百盒验收；本地 RTSP 模拟源取流已验收；盒端 RTSP 推流输出已验收（H.264/yuv420p、15 FPS）；日志采集与 Fluent Bit 待验收。
 paths:
   /api/v1/health:
     get:
