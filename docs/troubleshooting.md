@@ -71,6 +71,14 @@
 - 根因：Python 中继的 `socket.create_connection(TARGET, timeout=10)` 在连接成功后仍保留 10 秒读超时；推流方向缺少反向数据时 `recv` 超时，中继执行 `shutdown(SHUT_WR)`。
 - 解决命令：连接成功后补 `upstream.settimeout(None)`，只保留连接超时；同一推流随后持续 2 分 41 秒、15 FPS，MediaMTX 不再 TEARDOWN。
 
+- 现象与命令：go2rtc 1.9.15 用 `ffmpeg:<本地 MP4>#video=h264#input=file` 做源时，30 秒素材播完即停，40 秒拉流只收到 450 帧。
+- 根因：该源只按实时速度读取文件，没有循环参数；文件 EOF 后生产者退出。
+- 解决命令：改用 `exec:` 源并显式加 `-re -stream_loop -1 -i <文件> -f rtsp {output}`；同一 40 秒拉流收到 601 帧，媒体面持续可用。
+
+- 现象与命令：go2rtc v1.9.15 的 ONVIF `GetProfiles` 返回 1920×1080@30 Main，但 `ffprobe` 实际流为 640×480@15；PTZ 请求返回 HTTP 400，UDP 3702 无响应。
+- 根因：go2rtc 只实现 ONVIF Device／Media 子集，Profile 为固定桩，不实现 WS-Discovery、PTZ 与相机鉴权。
+- 解决命令：按地址手工接入设备服务和媒体服务，用 `GetStreamUri` 返回的 RTSP 地址取流；验收分别记录 ONVIF 控制面与 RTSP 媒体面，不把子集写成完整 Profile S。
+
 - 现象与命令：盒端 `which ffmpeg` 为空；`/opt/ffmpeg` 的静态构建带 `--disable-programs`，muxers 只有 `mp4,mov,matroska,mpjpeg,rawvideo`，无 RTSP muxer 与 libx264。
 - 根因：离线原生构建只编入运行库，目标机又无外网与 apt，无法临时安装 CLI。
 - 解决命令：联想下载 johnvansickle `ffmpeg-7.0.2-arm64-static`（含 libx264 与 RTSP muxer），scp 到 `/usr/local/bin/ffmpeg` 并 `chmod 0755`；`ffmpeg -version`、`-encoders`、`-muxers` 核验后推流成功。

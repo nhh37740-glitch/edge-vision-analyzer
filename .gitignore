@@ -23,6 +23,8 @@ Thumbs.db
 !.env.example
 /config/config.local.json
 /config/*.local.json
+*.local.yaml
+*.local.yml
 *.pem
 *.key
 
