@@ -53,7 +53,7 @@
 
 - 现象与命令：2026-11-24 联想 PC 运行 MediaMTX v1.21.4 并由 FFmpeg 推送 `rtsp://127.0.0.1:8554/cam` 后，PC 本机可拉流，盒端访问 `10.10.10.1:8554` 超时。
 - 根因：Windows 防火墙已存在 `mediamtx.exe` 入站阻止规则；回环测试不经过入站检查，不能证明局域网可达。
-- 解决命令：在 Windows 防火墙删除或禁用 `mediamtx.exe` 的入站阻止规则，再允许 TCP 8554／9997 入站。本次无管理员权限，临时用 PC 本机 TCP 中继 `18554→8554`；盒端 60 秒采集 14.1 FPS、丢帧 0。
+- 解决命令：在 Windows 防火墙删除或禁用 `mediamtx.exe` 的入站阻止规则，再允许 TCP 8554 入站（9997 仅供 PC 本机查询 API）。本次无管理员权限，临时用 PC 本机 TCP 中继 `18554→8554`；盒端 60 秒采集 14.1 FPS、丢帧 0。
 
 - 现象与命令：Issue #130 允许 ONVIF 或 RTSP 模拟源；MediaMTX v1.21.4 不提供 ONVIF 发现或 Profile S。
 - 根因：MediaMTX 是 RTSP／RTMP／HLS 等传输服务，不是 ONVIF 相机实现。
