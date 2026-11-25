@@ -103,7 +103,8 @@ Issue #144／PR #151 的[手动 run 45368104945](https://github.com/nhh37740-gli
 | 退出与恢复 | `systemctl stop` 161 ms 完成，`Result=success`、`ExecMainStatus=0`、MainPID=0、无崩溃栈；重启后 edge 与 Fluent Bit 均 active／running，health 200，stats 正常。清理后再重启，至 10:09:11 连续运行约 5.5 分钟：同一 PID、`NRestarts=0`、丢帧 0、采集 14.9 FPS、`rss_memory_mb` 52.9、`VmRSS` 54,120 kB、39.1 °C，journal 无 error／failed 记录 |
 | 盒端清理 | 经只读核查后按用户授权删除构建目录、NCNN 源码、静态 FFmpeg 开发文件、Meson／工具链、配置备份、`/tmp/edge-logging` 安装暂存及旧测试临时文件；`/opt` 仅保留 `edge-vision-analyzer`、`fluent-bit` 与系统 `containerd`，清理后重启并复核加载器 0 缺失、health 200 |
 | PC 日志接收恢复 | 初次重启时 PC `:8090` 未监听，Fluent Bit 虽 active 但投递超时并按有限重试丢批，不能称为日志链路已恢复。随后恢复 PC 接收服务，盒端访问 PC `/health` 返回 200；再重启 edge 后查询 PC 日志取得 2 条新记录，均属于 `edge-vision.service`、PID 与该次启动一致，含 1 条 `listening on` 启动日志。只证明后续新日志转发成功，不补传之前丢弃的批次 |
-| 后续验收 | 正式 Tag／Release、整机重启、长时间运行、真实断网与 LLM／存储事件链路尚未在本次新包工况复验；回退材料仅存联想 PC |
+| 正式发布（2026-11-25） | Tag `v1.0-vox` 指向合并提交 `12576f3`；[run 45542161328](https://github.com/nhh37740-glitch/edge-vision-analyzer/actions/runs/45542161328)完成 native 构建、CTest 9/9、pytest 5 项、ARM64 交叉构建与打包，并发布 `edge-vision-analyzer-v1.0-vox-arm64.tar.gz`（65,643,875 字节）。正式附件未在盒端再次安装；盒端验收对象是同一源码树的预发布包。health 版本字符串仍报告 `v0.1-oculus`，见 #160 |
+| 后续验收 | 整机重启、长时间运行、真实断网与 LLM／存储事件链路尚未在本次新包工况复验；回退材料仅存联想 PC |
 
 ## 3. 各里程碑性能记录
 

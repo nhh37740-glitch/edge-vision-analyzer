@@ -45,7 +45,7 @@ IP 相机／手机流／本地视频 → Armbian 魔百盒 → 实时快照／MJ
 
 这是指定工况的实测，不能据此推断所有场景的检测速度或长期稳定性。硬件、提交、工况与其他结果见[实测台账](docs/benchmarks.md)。
 
-ONVIF 目前仅做过 go2rtc 模拟器控制面子集验证，边缘程序没有 ONVIF 客户端。ARM64 离线发行包已在目标机完成部署与运行验收；正式 Release、整机重启恢复与长期运行仍待验收，发行后续见 [#154](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues/154)。
+ONVIF 目前仅做过 go2rtc 模拟器控制面子集验证，边缘程序没有 ONVIF 客户端。ARM64 离线发行包已在目标机完成部署与运行验收，正式 Release [v1.0-vox](https://github.com/nhh37740-glitch/edge-vision-analyzer/releases/tag/v1.0-vox) 已于 2026-11-25 发布；整机重启恢复与长期运行仍待验收。health 版本字符串仍报告 `v0.1-oculus`，见 [#160](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues/160)。
 
 ## 先在 PC 上运行
 
@@ -103,7 +103,7 @@ python -m uvicorn server:app --app-dir cloud-storage --host 127.0.0.1 --port 809
 
 盒子只运行程序，不编译大型 C++ 依赖。先在 PC 准备 ARM64 程序、匹配的运行库、模型、输入源和本地配置，再按[部署与服务说明](docs/architecture.md)操作；脚本入口为 [deploy_to_box.sh](scripts/deploy_to_box.sh)。
 
-现有脚本不安装 `lib/`；动态发行包须停服务后先安装同包运行库。构建打包实现已经[PR #151](https://github.com/nhh37740-glitch/edge-vision-analyzer/pull/151)合并，手动 runner 构建、包检查与盒端部署运行结果见[实测台账](docs/benchmarks.md#arm64-发行包构建验收2026-11-24)；正式发布仍由 [#154](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues/154) 跟踪。回退材料仅存 PC，盒端只保留当前运行所需文件。
+现有脚本不安装 `lib/`；动态发行包须停服务后先安装同包运行库。构建打包实现已经[PR #151](https://github.com/nhh37740-glitch/edge-vision-analyzer/pull/151)合并，手动 runner 构建、包检查与盒端部署运行结果见[实测台账](docs/benchmarks.md#arm64-发行包构建验收2026-11-24)；正式 Release 已发布，附件与构建结果见 [v1.0-vox](https://github.com/nhh37740-glitch/edge-vision-analyzer/releases/tag/v1.0-vox)。回退材料仅存 PC，盒端只保留当前运行所需文件。
 
 ## 深入阅读
 
