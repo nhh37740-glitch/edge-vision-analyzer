@@ -97,7 +97,7 @@ Issue #144／PR #151 的[手动 run 45368104945](https://github.com/nhh37740-gli
 | Artifact | 名称 `edge-vision-analyzer-arm64`，ID `14908217952`；Actions 外层 ZIP 为 65,247,073 字节，内层 `tar.gz` 为 65,644,399 字节，不等同于解压后运行目录大小 |
 | PC 包内容核对 | 常规下载与限时重试超时后，通过 Azure 存储地址的六段 HTTP Range 传输取回并安全解压；实际含 131 个运行库文件、122 个动态依赖包条目及对应版权文件，另含 NCNN、nlohmann/json、stb 许可；此处为 11 月 24 日 PC 检查结果，11 月 25 日部署另列下行 |
 | PC ELF 抽检 | 主程序及 5 个直接依赖库（4 个 FFmpeg 库、cpp-httplib）均为 AArch64；主程序 RUNPATH 为 `$ORIGIN/../lib`，抽检库均为 `$ORIGIN`。依赖清单的 FFmpeg 源包版本为 `7:6.1.1-3ubuntu5`；不替代盒端加载器解析与运行验收 |
-| 公开发布 | 手动事件的 `publish-release` 按设计跳过，尚未创建正式 Tag／Release |
+| 公开发布 | 11 月 24 日手动事件的 `publish-release` 按设计跳过，该次未创建正式 Tag／Release；正式发布见下方 11 月 25 日行 |
 | 盒端加载与部署 | 2026-11-25 09:50 恢复直连后，停止 edge／Fluent Bit，安装同包 `lib/`（131 个文件）并替换主程序。目标加载器 `--list` 退出 0，131 个库从 `/opt/edge-vision-analyzer/lib` 解析、4 个来自系统 glibc 目录、`not found` 为 0。既有 `deploy_to_box.sh` 完成对时、保留现场配置、重启与 health 200，日志仅出现动态构建的一条 swscale 加速不可用提示 |
 | 盒端运行 | 同一 PID 连续 108 秒、跨 30.13 秒本地视频至少 3 次循环，`NRestarts=0`、丢帧 0、采集 14.9 FPS、`rss_memory_mb` 53.9、`VmRSS` 55,156 kB、SoC 38.4 °C、快照 200／`image/jpeg`／20,702 字节且 PC 可解码。PATCH 临时把 MAD 设为 0 运行 20 秒，API 累计检测 FPS 为 2.1、推理均值 41.3 ms（FPS 包含之前跳过检测的时间，不代表强制检测窗口的瞬时吞吐），随后恢复 8.0 并核对生效值 |
 | 退出与恢复 | `systemctl stop` 161 ms 完成，`Result=success`、`ExecMainStatus=0`、MainPID=0、无崩溃栈；重启后 edge 与 Fluent Bit 均 active／running，health 200，stats 正常。清理后再重启，至 10:09:11 连续运行约 5.5 分钟：同一 PID、`NRestarts=0`、丢帧 0、采集 14.9 FPS、`rss_memory_mb` 52.9、`VmRSS` 54,120 kB、39.1 °C，journal 无 error／failed 记录 |
