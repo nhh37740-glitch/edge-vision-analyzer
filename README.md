@@ -40,11 +40,12 @@ IP 相机／手机流／本地视频 → Armbian 魔百盒 → 实时快照／MJ
 
 | 工况 | 采集 FPS | 进程 RSS | 丢帧 |
 | --- | --- | --- | --- |
-| 本地 MP4 循环、640×480@15、MAD 8.0、LLM／存储关闭，608 秒窗口 | 14.9 | 28.4 MB | 0 |
+| 原静态构建，本地 MP4 循环、640×480@15、MAD 8.0、LLM／存储关闭，608 秒窗口（2026-11-24） | 14.9 | 28.4 MB | 0 |
+| ARM64 动态发行包，相同视频和配置，108 秒窗口（2026-11-25） | 14.9 | 53.9 MB | 0 |
 
 这是指定工况的实测，不能据此推断所有场景的检测速度或长期稳定性。硬件、提交、工况与其他结果见[实测台账](docs/benchmarks.md)。
 
-ONVIF 目前仅做过 go2rtc 模拟器控制面子集验证，边缘程序没有 ONVIF 客户端。ARM64 离线发行包的目标机部署、正式 Release、整机重启恢复与长期运行仍待验收；发行后续见 [#154](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues/154)。
+ONVIF 目前仅做过 go2rtc 模拟器控制面子集验证，边缘程序没有 ONVIF 客户端。ARM64 离线发行包已在目标机完成部署与运行验收；正式 Release、整机重启恢复与长期运行仍待验收，发行后续见 [#154](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues/154)。
 
 ## 先在 PC 上运行
 
@@ -102,7 +103,7 @@ python -m uvicorn server:app --app-dir cloud-storage --host 127.0.0.1 --port 809
 
 盒子只运行程序，不编译大型 C++ 依赖。先在 PC 准备 ARM64 程序、匹配的运行库、模型、输入源和本地配置，再按[部署与服务说明](docs/architecture.md)操作；脚本入口为 [deploy_to_box.sh](scripts/deploy_to_box.sh)。
 
-现有脚本不安装 `lib/`；动态发行包须停服务后先安装同包运行库。构建打包实现已经[PR #151](https://github.com/nhh37740-glitch/edge-vision-analyzer/pull/151)合并，手动 runner 构建与 PC 侧包检查结果见[实测台账](docs/benchmarks.md#arm64-发行包构建验收2026-11-24)；新包盒端运行与正式发布仍由 [#154](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues/154) 跟踪。回退材料仅存 PC，盒端只保留当前运行所需文件。
+现有脚本不安装 `lib/`；动态发行包须停服务后先安装同包运行库。构建打包实现已经[PR #151](https://github.com/nhh37740-glitch/edge-vision-analyzer/pull/151)合并，手动 runner 构建、包检查与盒端部署运行结果见[实测台账](docs/benchmarks.md#arm64-发行包构建验收2026-11-24)；正式发布仍由 [#154](https://github.com/nhh37740-glitch/edge-vision-analyzer/issues/154) 跟踪。回退材料仅存 PC，盒端只保留当前运行所需文件。
 
 ## 深入阅读
 
