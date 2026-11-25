@@ -4,15 +4,56 @@
 
 盒子负责取流、运动过滤、目标检测和实时画面；PC 负责可选的本地视觉模型推理、图片与事件留存。运行时只访问局域网服务，盒子不保存历史事件或失败图片缓存。
 
-## 看一条实际结果
+## 完整记录：画面、检测与中文摘要
 
-[打开云存储查询演示](https://github.com/nhh37740-glitch/edge-vision-analyzer/discussions/156)，查看干净 JPEG、检测框、中文摘要、完整 JSON 与查询命令。
+这一节把一次真实运行的四段证据排在一起：输入画面、检测框与分数、本地视觉模型摘要、盒端实时画面。第 1～3 段来自 2026-11-24 的 PC 单帧演示，第 4 段来自同一公开数据集在魔百盒上的取流验收；两段记录不是同一条流水线，各自只证明各自做过的事。
 
-![公开 CAVIAR 走廊画面上的实际检测框：person 0.661](https://github.com/nhh37740-glitch/edge-vision-analyzer/blob/main/docs/examples/cloud-storage/annotated.png?raw=true)
+### 1. 输入画面
 
-这是 PC 对公开 CAVIAR 视频单帧检测后显式投递、再从云存储查询的演示。检测只返回一个框，模型摘要也存在未由单帧证实的描述；完整方法与限制见演示帖和[示例文档](docs/examples/cloud-storage/README.md)。
+![公开 CAVIAR 走廊画面，云存储返回的干净 JPEG](docs/examples/cloud-storage/clean.jpg)
 
-图像来源：**EC Funded CAVIAR project/IST 2001 37540**，[数据集来源页](http://homepages.inf.ed.ac.uk/rbf/CAVIAR/)，序列 `OneStopEnter1cor`。来源页标注 **CC BY-SA**，未注明版本；图片经过抽帧、缩放、编码和检测框标注，图像及其衍生版本沿用原许可。
+640×480 JPEG，42,201 字节，CAVIAR `OneStopEnter1cor` 零基第 150 帧（PTS 6.000 秒）。它由 PC 显式投递到隔离的 FastAPI／SQLite 存储，再从 `/api/v1/images/...` 取回并逐字节核对。存储接口保存的始终是干净图，检测框只画在展示用的衍生图上。
+
+### 2. 检测结果
+
+![同一帧上的实际 NCNN 检测框：person 0.661](docs/examples/cloud-storage/annotated.png)
+
+```json
+{
+  "top_label": "person",
+  "top_score": 0.6609150767326355,
+  "targets": [
+    {
+      "label": "person",
+      "score": 0.6609150767326355,
+      "x": 0.482364, "y": 0.367957,
+      "w": 0.135059, "h": 0.547253
+    }
+  ]
+}
+```
+
+坐标是相对画面的归一化值，由项目内 NCNN／YOLO-Fastest-v2 模块给出。阈值 0.5 下只检出一个框；画面里还有其他人，所以框数不是人数统计。
+
+### 3. 中文摘要
+
+> 一个人在走廊上行走，另一个人在远处交谈。
+
+本地 Qwen2-VL 经 OpenAI 兼容接口推理，本次客户端请求耗时 10,435 ms。这是模型原文，不是人工事实标注；“交谈”无法从单帧确认。
+
+### 4. 盒端实时画面
+
+![魔百盒 MJPEG 快照中的 OSD 检测框（2×3 拼图，单帧 640×480）](docs/examples/box-caviar/osd-sheet-2026-11-24.jpg)
+
+CAVIAR 走廊源经 PC 中继推送到魔百盒，盒端在快照 OSD 上直接绘出检测框，拼图中可见 `person 0.94`、`0.92`、`0.91` 等结果；单帧示例见[另一张快照](docs/examples/box-caviar/osd-frame-2026-11-24.jpg)。这次验收把 MAD 阈值临时改为 0.0 以强制检测，默认 8.0 时这段慢速走廊几乎全被运动过滤跳过。2026-11-25 装入 v1.0.1 后再复核：`/api/v1/health` 返回 `version=v1.0.1`，30 秒统计采集 14.9 FPS、丢帧 0、RSS 54.0 MB、SoC 38.9 °C，快照 200／20,361 字节。
+
+### 5. 复跑与完整 JSON
+
+查询命令、完整事件 JSON 与云存储目录结构见[示例文档](docs/examples/cloud-storage/README.md)和[云存储查询演示](https://github.com/nhh37740-glitch/edge-vision-analyzer/discussions/156)。盒端指标的连续记录在[实测台账](docs/benchmarks.md)。
+
+### 6. 边界与许可
+
+PC 单帧演示不等同盒端自动事件流水线；盒端 OSD 图来自取流验收，现场配置的 LLM 与存储开关当时为关闭。整机重启、长时间运行与真实断网仍未复验。图像来源：**EC Funded CAVIAR project/IST 2001 37540**，[数据集来源页](http://homepages.inf.ed.ac.uk/rbf/CAVIAR/)，序列 `OneStopEnter1cor`；来源页标注 **CC BY-SA**，未注明版本。图中图像经过抽帧、缩放、编码，盒端图另加检测框绘制，均沿用原许可。未使用现场私有画面、凭据或私有配置。
 
 ## 可以做什么
 
