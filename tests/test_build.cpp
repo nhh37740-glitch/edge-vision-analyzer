@@ -1,6 +1,18 @@
 #include <gtest/gtest.h>
 
+#include <cstring>
+
+#include "core/build_info.hpp"
 #include "core/source_kind.hpp"
+
+TEST(BuildInfo, ReportsInjectedVersion) {
+  const char* reported = edge::version();
+  ASSERT_NE(reported, nullptr);
+  EXPECT_GT(std::strlen(reported), 0u);
+  // EDGE_VERSION comes from CMake (PUBLIC on edge_core), so a tagged build
+  // reports the Tag name instead of a hardcoded string.
+  EXPECT_STREQ(reported, EDGE_VERSION);
+}
 
 TEST(SourceKind, RecognizesNetworkProtocols) {
   EXPECT_TRUE(edge::is_network_source("http://192.168.10.12:8080/video"));

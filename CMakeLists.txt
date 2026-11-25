@@ -1,6 +1,26 @@
 cmake_minimum_required(VERSION 3.20)
 project(edge-vision-analyzer LANGUAGES CXX)
 
+# Reported version (Issue #160). An explicit -DEDGE_VERSION wins; otherwise the
+# nearest tag is used so /api/v1/health matches the release Tag on tagged builds.
+if(NOT DEFINED EDGE_VERSION)
+  set(EDGE_VERSION "unknown")
+  find_package(Git QUIET)
+  if(GIT_FOUND)
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      OUTPUT_VARIABLE _edge_version
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      RESULT_VARIABLE _edge_version_status
+      ERROR_QUIET)
+    if(_edge_version_status EQUAL 0 AND _edge_version)
+      set(EDGE_VERSION "${_edge_version}")
+    endif()
+  endif()
+endif()
+message(STATUS "Reported version: ${EDGE_VERSION}")
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -46,6 +66,7 @@ add_library(edge_core STATIC
   src/core/source_kind.cpp
 )
 target_include_directories(edge_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_compile_definitions(edge_core PUBLIC "EDGE_VERSION=\"${EDGE_VERSION}\"")
 target_link_libraries(edge_core PUBLIC Threads::Threads)
 
 add_library(edge_common STATIC
